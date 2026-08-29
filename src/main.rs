@@ -1,12 +1,17 @@
 //! BingWallpaper-Rust —— 轻量级 Rust 壁纸客户端（Windows 7+）
 //!
-//! P0 范围：基础窗口 + Bing Provider + 图片下载 + 设置壁纸 + 单实例。
-//! 托盘 / 定时更新 / 配置 UI 为 P1（见方案文档 §39）。
+//! P1 范围：P0 基础上 + i18n / 缓存索引 / 定时调度 / 系统托盘 / 开机启动 / 设置页。
+//! `--minimized` 参数：启动时隐藏主窗口（开机自启动场景，方案 §30）。
 
 mod app;
+mod autostart;
+mod cache;
 mod downloader;
+mod i18n;
 mod provider;
+mod scheduler;
 mod system;
+mod tray;
 mod wallpaper;
 
 use std::sync::{Arc, Mutex};
@@ -15,6 +20,7 @@ use tracing::{error, info};
 
 use app::config::Config;
 use app::{App, Status};
+use i18n::Lang;
 
 fn main() -> eframe::Result<()> {
     tracing_subscriber::fmt()
@@ -34,7 +40,7 @@ fn main() -> eframe::Result<()> {
     }
     info!("数据目录: {}", data_dir.display());
 
-    let cfg = Config::load(&data_dir);
+    let cfg = Arc::new(Mutex::new(Config::load(&data_dir)));
 
     match system::acquire_single_instance("BingWallpaper-Rust-SingleInstance") {
         Ok(true) => {}
@@ -61,12 +67,21 @@ fn main() -> eframe::Result<()> {
         .spawn(move || runtime.block_on(std::future::pending::<()>()))
         .expect("启动 tokio 运行线程失败");
 
-    let status = Arc::new(Mutex::new(Status::idle()));
+    let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
+    let status = Arc::new(Mutex::new(Status::idle(lang)));
+
+    // 系统托盘（决策 #5）
+    let (tray_tx, tray_rx) = std::sync::mpsc::channel();
+    tray::spawn(lang, tray_tx);
+
+    // 开机自启动带 --minimized：主窗口隐藏，仅托盘驻留（方案 §15/§30）
+    let minimized = std::env::args().any(|arg| arg == "--minimized");
 
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("BingWallpaper-Rust")
-            .with_inner_size([640.0, 420.0]),
+            .with_inner_size([680.0, 480.0])
+            .with_visible(!minimized),
         ..Default::default()
     };
 
@@ -79,6 +94,8 @@ fn main() -> eframe::Result<()> {
                 data_dir,
                 rt_handle,
                 status,
+                tray_rx,
+                tray_tx,
                 cc.egui_ctx.clone(),
             )))
         }),

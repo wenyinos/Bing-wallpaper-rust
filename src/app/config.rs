@@ -1,7 +1,6 @@
 //! 配置加载/保存（%LOCALAPPDATA%\BingWallpaper-Rust\config.json，方案 §10）。
 //!
-//! P0 只读取 `bing_preset` 与 `fit_mode`；其余字段为 P1（配置 UI / 定时器）预留，
-//! P1 落地前以 `#[allow(dead_code)]` 标注，避免警告噪音。
+//! 未知字段（旧版本配置）由 serde 自动忽略；缺字段回退默认值。
 
 use std::path::{Path, PathBuf};
 
@@ -12,16 +11,25 @@ pub const APP_DIR_NAME: &str = "BingWallpaper-Rust";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[allow(dead_code)] // P1 启用：auto_update/update_interval_hours/cache_days/market/language
 pub struct Config {
+    /// 当前使用的 Provider id（P3 起支持多 Provider）
     pub provider: String,
+    /// Bing 预设：china | global（决策 #9）
     pub bing_preset: String,
     pub market: String,
+    /// 决策 #10：日期驱动的自动更新开关
     pub auto_update: bool,
-    pub update_interval_hours: u32,
+    /// 决策 #11：开机启动（改动时同步写注册表）
+    pub startup: bool,
     pub cache_days: u32,
+    /// fill | fit | stretch | center | span
     pub fit_mode: String,
+    /// zh | en（决策 #14）
     pub language: String,
+    /// P4：Provider 在线更新源
+    pub provider_repo_url: String,
+    /// P4：可选 ed25519 公钥（hex），配置后远程 Manifest 强制验签
+    pub provider_repo_public_key: Option<String>,
 }
 
 impl Default for Config {
@@ -31,10 +39,12 @@ impl Default for Config {
             bing_preset: "china".into(),
             market: "zh-CN".into(),
             auto_update: true,
-            update_interval_hours: 24,
+            startup: false,
             cache_days: 30,
             fit_mode: "fill".into(),
             language: "zh".into(),
+            provider_repo_url: String::new(),
+            provider_repo_public_key: None,
         }
     }
 }
