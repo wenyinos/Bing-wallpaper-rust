@@ -985,12 +985,13 @@ cargo update
 
 作为常规维护手段。
 
-构建路线已决策（双轨）：
+构建路线已决策（2026-08-29 修订为单轨）：
 
 ```text
-日常开发： Fedora Linux + rustup 1.77.2 + mingw-w64
-           target x86_64-pc-windows-gnu
-正式发布： GitHub Actions windows runner + MSVC 工具链
+日常开发： Fedora 本机仅保留 1.77.2 工具链
+           （cargo fmt 语法检查 + cargo generate-lockfile 生成依赖锁）
+           不安装 mingw-w64 / 任何 Windows target
+全部编译： GitHub Actions windows runner + MSVC 工具链
 ```
 
 所有依赖选择必须满足 MSRV ≤ 1.77.2（以 Cargo.lock 实际锁定为准）。
@@ -1151,7 +1152,7 @@ Provider → 2026.08.30
 已决策流程：
 
 ```text
-Fedora 交叉编译（gnu 目标）日常开发
+Fedora 本机编码 + cargo fmt 语法检查（不装 Windows 工具链）
         ↓
 GitHub Actions（windows runner + MSVC）构建发布包
         ↓
@@ -1622,7 +1623,7 @@ Bing
 
 | # | 决策项 | 结论 |
 |---|--------|------|
-| 1 | 构建环境 | 双轨：Fedora 交叉编译 x86_64-pc-windows-gnu（mingw-w64）日常开发；GitHub Actions（windows runner + MSVC）出正式发布包 |
+| 1 | 构建环境 | 单轨（2026-08-29 修订）：编译全部由 GitHub Actions（windows runner + MSVC）承担；本机 Fedora 仅保留 1.77.2 工具链做 cargo fmt 语法检查与 Cargo.lock 生成，不安装 mingw-w64/任何 Windows target |
 | 2 | 网络栈 | reqwest + tokio 异步；WallpaperProvider::fetch 为 async 签名 |
 | 3 | TLS 后端 | rustls + 显式 ring provider（不用 aws-lc-rs，不用 native-tls/schannel） |
 | 4 | 渲染后端 | eframe 0.27~0.28 + glow（OpenGL 2.0+），Cargo features 禁用 wgpu |
@@ -1642,9 +1643,10 @@ Bing
 P0 待落地事项：
 
 ```text
-✓ git init + .gitignore（本次已完成）
-□ LICENSE 文件（GPL-3.0 官方全文，脚手架阶段放入仓库根目录）
+✓ git init + .gitignore（已完成）
+✓ LICENSE 文件（GPL-3.0 官方全文）
 □ Cargo.toml 初版（features 按决策 #2/#3/#4/#5 配置）
 □ rust-toolchain.toml（1.77.2 + rustfmt + clippy）
-□ mingw-w64 交叉编译环境验证（本机 Fedora）
+□ GitHub Actions 构建工作流（fmt 检查 + windows/MSVC 发布构建）
+□ 编译通过 + Win7 VM 实测 rustls+ring HTTPS 握手
 ```
