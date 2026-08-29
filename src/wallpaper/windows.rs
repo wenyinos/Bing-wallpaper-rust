@@ -24,7 +24,8 @@ fn style_values(fit: FitMode) -> (&'static str, &'static str) {
     }
 }
 
-pub fn set_wallpaper(path: &Path, fit: FitMode) -> Result<(), WallpaperError> {
+/// Win7 兼容路径：SystemParametersInfoW + 注册表 WallpaperStyle（方案 §12/§13 决策）
+pub fn set_via_systemparams(path: &Path, fit: FitMode) -> Result<(), WallpaperError> {
     let path = path.to_string_lossy().into_owned();
     let wide = to_wide(&path);
     let ok = unsafe {

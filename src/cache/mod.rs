@@ -179,6 +179,37 @@ impl CacheManager {
         self.load_index().entries
     }
 
+    /// 用户手动设置某张缓存壁纸后，仅更新 last_set（日期记为当天，
+    /// 使调度器当日不再用新壁纸覆盖用户选择，见决策 #10 语义）
+    pub fn record_last_set(&self, provider: &str, wallpaper_id: &str) {
+        let mut index = self.load_index();
+        index.last_set = Some(LastSet {
+            provider: provider.to_string(),
+            wallpaper_id: wallpaper_id.to_string(),
+            date: Self::today(),
+        });
+        self.save_index(&index);
+    }
+
+    /// 历史页删除：移除文件与索引项
+    pub fn remove_entry(&self, provider: &str, wallpaper_id: &str) {
+        let mut index = self.load_index();
+        if let Some(pos) = index
+            .entries
+            .iter()
+            .position(|e| e.provider == provider && e.wallpaper_id == wallpaper_id)
+        {
+            let entry = index.entries.remove(pos);
+            let path = self.dir.join(&entry.file);
+            if let Err(err) = std::fs::remove_file(&path) {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    warn!("删除缓存文件失败 {}: {err}", path.display());
+                }
+            }
+            self.save_index(&index);
+        }
+    }
+
     pub fn thumbnail_dir(&self) -> PathBuf {
         self.dir.join("thumbnails")
     }

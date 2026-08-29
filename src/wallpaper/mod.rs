@@ -3,6 +3,9 @@
 //! MVP 采用系统注册表 WallpaperStyle（方案 §13 决策：程序级 crop/resize 推至 P2）。
 
 #[cfg(windows)]
+pub mod desktop_wallpaper;
+
+#[cfg(windows)]
 pub mod windows;
 
 use thiserror::Error;
@@ -15,6 +18,8 @@ pub enum WallpaperError {
     Api(u32),
     #[error("注册表写入失败（{key}，GetLastError={code}）")]
     Registry { key: &'static str, code: u32 },
+    #[error("COM 调用失败: {0}")]
+    Com(String),
 }
 
 /// 适配模式（方案 §13：Fill/Fit/Stretch/Center）
@@ -43,7 +48,19 @@ impl FitMode {
 pub fn set_wallpaper(path: &std::path::Path, fit: &str) -> Result<(), WallpaperError> {
     #[cfg(windows)]
     {
-        windows::set_wallpaper(path, FitMode::parse(fit))
+        let mode = FitMode::parse(fit);
+        // Win10+ 优先 IDesktopWallpaper（支持 Span、多显示器语义，方案 §14）
+        if windows::set_via_desktop_wallpaper(path, mode)
+            .or_else(|err| {
+                tracing::debug!("IDesktopWallpaper 不可用（Win7 属预期），回退 SPI: {err}");
+                windows::set_via_systemparams(path, mode)
+            })
+            .is_ok()
+        {
+            return Ok(());
+        }
+        // 双路径都失败：重试一次 SPI 拿到具体错误码返回
+        windows::set_via_systemparams(path, mode)
     }
     #[cfg(not(windows))]
     {

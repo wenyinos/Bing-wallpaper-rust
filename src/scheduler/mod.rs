@@ -18,6 +18,7 @@ use tracing::{debug, info};
 use crate::app::{spawn_update, Status};
 use crate::cache::CacheManager;
 use crate::i18n::Lang;
+use crate::provider::Wallpaper;
 
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(30);
 const CHECK_INTERVAL: Duration = Duration::from_secs(300);
@@ -28,6 +29,8 @@ pub struct SchedulerDeps {
     pub data_dir: PathBuf,
     pub status: Arc<Mutex<Status>>,
     pub ctx: egui::Context,
+    pub last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
+    pub fetch_cursor: Arc<Mutex<usize>>,
 }
 
 pub fn spawn(deps: SchedulerDeps) {
@@ -37,6 +40,7 @@ pub fn spawn(deps: SchedulerDeps) {
     let status = deps.status.clone();
     let ctx = deps.ctx.clone();
     let rt = deps.rt.clone();
+    let last_fetch = deps.last_fetch.clone();
 
     std::thread::Builder::new()
         .name("scheduler".into())
@@ -48,7 +52,15 @@ pub fn spawn(deps: SchedulerDeps) {
                 let auto = cfg.lock().map(|c| c.auto_update).unwrap_or(false);
                 if auto && !cache.is_today_set() {
                     info!("调度器：检测到今日壁纸未设置，触发更新");
-                    spawn_update(&rt, &cfg, &data_dir, &status, &ctx, lang);
+                    spawn_update(
+                        &rt,
+                        &cfg,
+                        &data_dir,
+                        &status,
+                        &ctx,
+                        lang,
+                        last_fetch.clone(),
+                    );
                 } else {
                     debug!("调度器：今日壁纸已设置或自动更新关闭，跳过");
                 }

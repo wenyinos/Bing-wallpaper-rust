@@ -17,27 +17,47 @@ mod wallpaper;
 use std::sync::{Arc, Mutex};
 
 use tracing::{error, info};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 use app::config::Config;
 use app::{App, Status};
 use i18n::Lang;
 
-fn main() -> eframe::Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
+/// 占位应用图标：运行时生成纯色 RGBA（真实 icon.ico 后续替换）
+fn runtime_icon() -> eframe::egui::IconData {
+    let (width, height) = (32u32, 32u32);
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for _ in 0..(width * height) {
+        rgba.extend_from_slice(&[36, 98, 217, 255]);
+    }
+    eframe::egui::IconData {
+        width,
+        height,
+        rgba,
+    }
+}
 
+fn main() -> eframe::Result<()> {
     let data_dir = match app::config::data_dir() {
         Some(dir) => dir,
         None => {
-            error!("无法确定本地数据目录（%LOCALAPPDATA%）");
+            eprintln!("无法确定本地数据目录（%LOCALAPPDATA%）");
             return Ok(());
         }
     };
     if let Err(err) = std::fs::create_dir_all(data_dir.join("cache")) {
-        error!("创建数据目录失败: {err}");
+        eprintln!("创建数据目录失败: {err}");
         return Ok(());
     }
+
+    // 日志：stdout + 按天滚动文件（方案 §18）；guard 必须存活到进程结束
+    let file_appender = tracing_appender::rolling::daily(data_dir.join("logs"), "app.log");
+    let (log_writer, log_guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(std::io::stdout.and(log_writer))
+        .init();
+
     info!("数据目录: {}", data_dir.display());
 
     let cfg = Arc::new(Mutex::new(Config::load(&data_dir)));
@@ -81,6 +101,7 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("BingWallpaper-Rust")
             .with_inner_size([680.0, 480.0])
+            .with_icon(runtime_icon())
             .with_visible(!minimized),
         ..Default::default()
     };

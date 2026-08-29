@@ -27,6 +27,8 @@ pub fn spawn(_lang: crate::i18n::Lang, _tx: Sender<TrayAction>) {}
 pub enum TrayAction {
     Open,
     UpdateNow,
+    Next,
+    History,
     Settings,
     About,
     Quit,
@@ -45,10 +47,12 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
     let mut menu = Menu::new();
     let open = MenuItem::with_id("open", t.tray_open, true, None);
     let update = MenuItem::with_id("update", t.tray_update, true, None);
+    let next = MenuItem::with_id("next", t.tray_next, true, None);
+    let history = MenuItem::with_id("history", t.tray_history, true, None);
     let settings = MenuItem::with_id("settings", t.tray_settings, true, None);
     let about = MenuItem::with_id("about", t.tray_about, true, None);
     let quit = MenuItem::with_id("quit", t.tray_quit, true, None);
-    menu.append_items(&[&open, &update, &settings, &about, &quit])?;
+    menu.append_items(&[&open, &update, &next, &history, &settings, &about, &quit])?;
 
     let icon = solid_icon(32, 32, [36, 98, 217, 255])?;
 
@@ -65,6 +69,8 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
             let action = match event.id.0.as_str() {
                 "open" => Some(TrayAction::Open),
                 "update" => Some(TrayAction::UpdateNow),
+                "next" => Some(TrayAction::Next),
+                "history" => Some(TrayAction::History),
                 "settings" => Some(TrayAction::Settings),
                 "about" => Some(TrayAction::About),
                 "quit" => Some(TrayAction::Quit),

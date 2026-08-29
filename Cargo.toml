@@ -30,6 +30,10 @@ async-trait = "0.1.80"
 dirs = "5.0.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
+# 图片处理（P2：缩略图/历史壁纸预览；0.24 复用依赖树中已有版本，只开需要的解码器）
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+# 日志文件（方案 §18，按天滚动）
+tracing-appender = "0.2"
 
 # Windows API（决策：windows-sys 而非 windows；P1 引入 tray-icon 时才增加 windows crate）
 [target.'cfg(windows)'.dependencies]
@@ -41,6 +45,8 @@ windows-sys = { version = "0.52.0", features = [
 ] }
 # 系统托盘（决策 #5）；其 windows crate 依赖树随动
 tray-icon = "0.14"
+# P2 多显示器/Win10+ 壁纸接口 IDesktopWallpaper（Win7 回退 SystemParametersInfoW）
+windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_System_Com"] }
 
 [profile.release]
 opt-level = "z"      # 小体积优先（壁纸客户端为 IO 密集，性能无碍）

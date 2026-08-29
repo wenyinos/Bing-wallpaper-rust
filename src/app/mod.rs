@@ -1,9 +1,10 @@
-//! eframe 应用层：页面（主页/设置/关于）、托盘事件消费、更新动作。
+//! eframe 应用层：页面（主页/设置/历史/关于）、托盘事件消费、更新动作。
 //!
-//! P1：+i18n、+设置页、+关闭进托盘、+定时调度接入。
+//! P2：+历史壁纸（缩略图网格）、+下一张轮换、+Win10/Win7 双壁纸路径接入。
 
 pub mod config;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -12,11 +13,11 @@ use eframe::egui;
 use tokio::runtime::Handle;
 use tracing::{error, info};
 
-use crate::cache::CacheManager;
+use crate::cache::{CacheEntry, CacheManager};
 use crate::downloader::Downloader;
 use crate::i18n::Lang;
 use crate::provider::bing::BingProvider;
-use crate::provider::{ProviderContext, WallpaperProvider};
+use crate::provider::{ProviderContext, Wallpaper, WallpaperProvider};
 use crate::scheduler;
 use crate::tray::TrayAction;
 
@@ -24,6 +25,7 @@ use crate::tray::TrayAction;
 pub enum Page {
     Home,
     Settings,
+    History,
     About,
 }
 
@@ -56,9 +58,17 @@ pub struct App {
     pub events_rx: std::sync::mpsc::Receiver<TrayAction>,
     pub events_tx: std::sync::mpsc::Sender<TrayAction>,
     pub settings_hint: Option<(String, Instant)>,
+    /// 最近一次 fetch 的壁纸列表（"下一张"轮换数据源）
+    pub last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
+    pub fetch_cursor: Arc<Mutex<usize>>,
+    /// 历史页：条目快照 + 缩略图纹理缓存
+    pub history_entries: Vec<CacheEntry>,
+    pub history_stale: bool,
+    pub textures: HashMap<String, egui::TextureHandle>,
 }
 
 impl App {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cfg: Arc<Mutex<config::Config>>,
         data_dir: PathBuf,
@@ -69,6 +79,8 @@ impl App {
         ctx: egui::Context,
     ) -> Self {
         let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
+        let last_fetch = Arc::new(Mutex::new(Vec::new()));
+        let fetch_cursor = Arc::new(Mutex::new(0));
         // 定时调度：启动 30 秒后首查，之后每 5 分钟比对壁纸日期（决策 #10）
         scheduler::spawn(scheduler::SchedulerDeps {
             rt: rt.clone(),
@@ -76,9 +88,19 @@ impl App {
             data_dir: data_dir.clone(),
             status: status.clone(),
             ctx: ctx.clone(),
+            last_fetch: last_fetch.clone(),
+            fetch_cursor: fetch_cursor.clone(),
         });
         // 启动即尝试一次更新（缓存命中则零下载）
-        spawn_update(&rt, &cfg, &data_dir, &status, &ctx, lang);
+        spawn_update(
+            &rt,
+            &cfg,
+            &data_dir,
+            &status,
+            &ctx,
+            lang,
+            last_fetch.clone(),
+        );
         Self {
             cfg,
             data_dir,
@@ -91,6 +113,11 @@ impl App {
             events_rx,
             events_tx,
             settings_hint: None,
+            last_fetch,
+            fetch_cursor,
+            history_entries: Vec::new(),
+            history_stale: true,
+            textures: HashMap::new(),
         }
     }
 
@@ -102,26 +129,39 @@ impl App {
             &self.status,
             ctx,
             self.lang,
+            self.last_fetch.clone(),
+        );
+    }
+
+    fn spawn_next_wallpaper(&self, ctx: &egui::Context) {
+        spawn_next(
+            &self.rt,
+            &self.cfg,
+            &self.data_dir,
+            &self.status,
+            ctx,
+            self.lang,
+            self.last_fetch.clone(),
+            self.fetch_cursor.clone(),
         );
     }
 
     fn handle_tray_action(&mut self, action: TrayAction, ctx: &egui::Context) {
+        let show = |page: &mut Page, target: Page, ctx: &egui::Context| {
+            *page = target;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        };
         match action {
             TrayAction::Open => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
             TrayAction::UpdateNow => self.spawn_manual_update(ctx),
-            TrayAction::Settings => {
-                self.page = Page::Settings;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-            TrayAction::About => {
-                self.page = Page::About;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
+            TrayAction::Next => self.spawn_next_wallpaper(ctx),
+            TrayAction::History => show(&mut self.page, Page::History, ctx),
+            TrayAction::Settings => show(&mut self.page, Page::Settings, ctx),
+            TrayAction::About => show(&mut self.page, Page::About, ctx),
             TrayAction::Quit => {
                 self.exit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -134,6 +174,7 @@ impl App {
             let t = crate::i18n::table(self.lang);
             let pages = [
                 (Page::Home, t.tab_home),
+                (Page::History, t.tab_history),
                 (Page::Settings, t.tab_settings),
                 (Page::About, t.tab_about),
             ];
@@ -169,6 +210,9 @@ impl App {
                 if ui.button(t.update_now).clicked() {
                     self.spawn_manual_update(ui.ctx());
                 }
+                if ui.button(t.next_wallpaper).clicked() {
+                    self.spawn_next_wallpaper(ui.ctx());
+                }
             });
         });
         ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -178,6 +222,152 @@ impl App {
                 t.data_dir_label,
                 self.data_dir.display()
             ));
+        });
+    }
+
+    fn draw_history(&mut self, ui: &mut egui::Ui) {
+        let t = crate::i18n::table(self.lang);
+        if self.history_stale {
+            let mut entries = self.cache.entries();
+            entries.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+            self.history_entries = entries;
+            self.history_stale = false;
+        }
+        if self.history_entries.is_empty() {
+            ui.add_space(8.0);
+            ui.label(t.history_empty);
+            return;
+        }
+        let entries = self.history_entries.clone();
+        egui::ScrollArea::both().show(ui, |ui| {
+            egui::Grid::new("history_grid")
+                .num_columns(3)
+                .spacing([12.0, 12.0])
+                .show(ui, |ui| {
+                    let mut column = 0;
+                    for entry in &entries {
+                        ui.vertical(|ui| {
+                            if let Some(tex) = self.texture_for(ui.ctx(), entry) {
+                                ui.add(egui::Image::new(&tex).max_width(220.0));
+                            } else {
+                                ui.add(egui::Placeholder::new(egui::vec2(220.0, 124.0), 0.25));
+                            }
+                            ui.label(
+                                entry
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| entry.wallpaper_id.clone()),
+                            );
+                            if let Some(date) = entry.date {
+                                ui.weak(date.format("%Y-%m-%d").to_string());
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.button(t.history_set).clicked() {
+                                    self.apply_history_entry(ui.ctx(), entry);
+                                }
+                                if ui.button(t.history_open_location).clicked() {
+                                    let loc = self
+                                        .cache
+                                        .dir()
+                                        .join(&entry.file)
+                                        .to_string_lossy()
+                                        .into_owned();
+                                    open_location(&loc);
+                                }
+                                if ui.button(t.history_delete).clicked() {
+                                    self.cache
+                                        .remove_entry(&entry.provider, &entry.wallpaper_id);
+                                    self.textures.remove(&entry.file);
+                                    self.history_stale = true;
+                                }
+                            });
+                        });
+                        column += 1;
+                        if column % 3 == 0 {
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    }
+
+    fn texture_for(
+        &mut self,
+        ctx: &egui::Context,
+        entry: &CacheEntry,
+    ) -> Option<egui::TextureHandle> {
+        if let Some(tex) = self.textures.get(&entry.file) {
+            return Some(tex.clone());
+        }
+        let source = self.cache.dir().join(&entry.file);
+        let thumb = crate::thumbs::ensure_thumbnail(self.cache.dir(), &source, &entry.file)?;
+        let img = image::open(&thumb).ok()?;
+        let (width, height) = img.dimensions();
+        let rgba = img.to_rgba8().into_raw();
+        let color =
+            egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
+        let tex = ctx.load_texture(
+            format!("history-{}", entry.file),
+            color,
+            egui::TextureOptions::default(),
+        );
+        self.textures.insert(entry.file.clone(), tex.clone());
+        Some(tex)
+    }
+
+    /// 历史条目 -> 设为当前壁纸（后台线程执行 Win32 调用）
+    fn apply_history_entry(&self, ctx: &egui::Context, entry: &CacheEntry) {
+        let t = crate::i18n::table(self.lang);
+        let path = self.cache.dir().join(&entry.file);
+        let fit = self
+            .cfg
+            .lock()
+            .map(|c| c.fit_mode.clone())
+            .unwrap_or_else(|_| "fill".into());
+        let status = self.status.clone();
+        let data_dir = self.data_dir.clone();
+        let ctx = ctx.clone();
+        let title = entry
+            .title
+            .clone()
+            .unwrap_or_else(|| entry.wallpaper_id.clone());
+        let provider = entry.provider.clone();
+        let wallpaper_id = entry.wallpaper_id.clone();
+        self.rt.spawn(async move {
+            set_status(&status, true, t.status_updating.into(), &ctx);
+            let result =
+                tokio::task::spawn_blocking(move || crate::wallpaper::set_wallpaper(&path, &fit))
+                    .await;
+            match result {
+                Ok(Ok(())) => {
+                    info!("历史壁纸已设置: {title}");
+                    CacheManager::new(&data_dir).record_last_set(&provider, &wallpaper_id);
+                    if let Ok(mut s) = status.lock() {
+                        s.running = false;
+                        s.message = format!("{}{title}", t.status_done_prefix);
+                        s.last_set = Some(CacheManager::today().format("%Y-%m-%d").to_string());
+                    }
+                }
+                Ok(Err(err)) => {
+                    error!("历史壁纸设置失败: {err}");
+                    set_status(
+                        &status,
+                        false,
+                        format!("{}{err}", t.status_failed_prefix),
+                        &ctx,
+                    );
+                }
+                Err(err) => {
+                    error!("壁纸任务异常: {err}");
+                    set_status(
+                        &status,
+                        false,
+                        format!("{}{err}", t.status_failed_prefix),
+                        &ctx,
+                    );
+                }
+            }
+            ctx.request_repaint();
         });
     }
 
@@ -303,7 +493,18 @@ fn fit_label(t: &crate::i18n::Strings, fit: &str) -> &'static str {
     }
 }
 
+#[cfg(windows)]
+fn open_location(path: &str) {
+    let _ = std::process::Command::new("explorer")
+        .args(["/select,", path])
+        .spawn();
+}
+
+#[cfg(not(windows))]
+fn open_location(_file: &str) {}
+
 /// 供 UI 按钮 / 托盘 / 调度器共用的更新触发入口
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_update(
     rt: &Handle,
     cfg: &Arc<Mutex<config::Config>>,
@@ -311,12 +512,45 @@ pub fn spawn_update(
     status: &Arc<Mutex<Status>>,
     ctx: &egui::Context,
     lang: Lang,
+    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
 ) {
-    let cfg = cfg.clone();
     let data_dir = data_dir.to_path_buf();
     let status = status.clone();
     let ctx = ctx.clone();
-    rt.spawn(update_task(cfg, data_dir, status, ctx, lang));
+    rt.spawn(update_task(
+        cfg.clone(),
+        data_dir,
+        status,
+        ctx,
+        lang,
+        last_fetch,
+    ));
+}
+
+/// "下一张"：轮换最近 fetch 列表中的壁纸（方案 §15 托盘"下一张"）
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_next(
+    rt: &Handle,
+    cfg: &Arc<Mutex<config::Config>>,
+    data_dir: &Path,
+    status: &Arc<Mutex<Status>>,
+    ctx: &egui::Context,
+    lang: Lang,
+    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
+    cursor: Arc<Mutex<usize>>,
+) {
+    let data_dir = data_dir.to_path_buf();
+    let status = status.clone();
+    let ctx = ctx.clone();
+    rt.spawn(next_task(
+        cfg.clone(),
+        data_dir,
+        status,
+        ctx,
+        lang,
+        last_fetch,
+        cursor,
+    ));
 }
 
 async fn update_task(
@@ -325,10 +559,11 @@ async fn update_task(
     status: Arc<Mutex<Status>>,
     ctx: egui::Context,
     lang: Lang,
+    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
 ) {
     let t = crate::i18n::table(lang);
     set_status(&status, true, t.status_updating.into(), &ctx);
-    match run_update(&cfg, &data_dir).await {
+    match run_update(&cfg, &data_dir, &last_fetch).await {
         Ok((title, date)) => {
             info!("壁纸更新完成: {title}（{date}）");
             if let Ok(mut s) = status.lock() {
@@ -350,6 +585,39 @@ async fn update_task(
     }
 }
 
+async fn next_task(
+    cfg: Arc<Mutex<config::Config>>,
+    data_dir: PathBuf,
+    status: Arc<Mutex<Status>>,
+    ctx: egui::Context,
+    lang: Lang,
+    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
+    cursor: Arc<Mutex<usize>>,
+) {
+    let t = crate::i18n::table(lang);
+    set_status(&status, true, t.status_updating.into(), &ctx);
+    match run_next(&cfg, &data_dir, &last_fetch, &cursor).await {
+        Ok((title, date)) => {
+            info!("切换壁纸: {title}（{date}）");
+            if let Ok(mut s) = status.lock() {
+                s.running = false;
+                s.message = format!("{}{title}", t.status_done_prefix);
+                s.last_set = Some(date);
+            }
+            ctx.request_repaint();
+        }
+        Err(err) => {
+            error!("切换壁纸失败: {err}");
+            set_status(
+                &status,
+                false,
+                format!("{}{err}", t.status_failed_prefix),
+                &ctx,
+            );
+        }
+    }
+}
+
 fn set_status(status: &Arc<Mutex<Status>>, running: bool, message: String, ctx: &egui::Context) {
     if let Ok(mut s) = status.lock() {
         s.running = running;
@@ -360,37 +628,46 @@ fn set_status(status: &Arc<Mutex<Status>>, running: bool, message: String, ctx: 
 
 type UpdateError = Box<dyn std::error::Error + Send + Sync>;
 
-/// Provider -> 下载 -> 缓存 -> 设置壁纸 的数据流（方案 §2）
-async fn run_update(
-    cfg: &Arc<Mutex<config::Config>>,
-    data_dir: &Path,
-) -> Result<(String, String), UpdateError> {
-    let snapshot = cfg.lock().map(|c| c.clone()).map_err(|_| "配置状态异常")?;
-    let http = reqwest::Client::builder()
+async fn http_client() -> Result<reqwest::Client, UpdateError> {
+    Ok(reqwest::Client::builder()
         .user_agent(concat!("BingWallpaper-Rust/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+        .build()?)
+}
 
-    // P3 起：按 cfg.provider 从注册表选择；P1 固定 Bing
-    let provider = BingProvider::from_preset(&snapshot.bing_preset);
-    let context = ProviderContext { http: http.clone() };
-    let wallpapers = provider.fetch(&context).await?;
-    let wp = wallpapers.first().ok_or("Provider 未返回任何壁纸")?;
+async fn fetch_list(
+    cfg: &config::Config,
+    http: reqwest::Client,
+) -> Result<(String, Vec<Wallpaper>), UpdateError> {
+    // P3 起：按 cfg.provider 从注册表选择；P2 固定 Bing
+    let provider = BingProvider::from_preset(&cfg.bing_preset);
+    let id = provider.id().to_string();
+    let context = ProviderContext { http };
+    let list = provider.fetch(&context).await?;
+    Ok((id, list))
+}
 
-    let cache = CacheManager::new(data_dir);
-    let dest = cache.path_for(provider.id(), &wp.id);
+/// 下载（或缓存命中）并把单张壁纸设为桌面
+async fn apply_wallpaper(
+    provider_id: &str,
+    wp: &Wallpaper,
+    http: reqwest::Client,
+    cache: &CacheManager,
+    fit_mode: &str,
+) -> Result<(String, String), UpdateError> {
+    let dest = cache.path_for(provider_id, &wp.id);
     let mut bytes: u64 = 0;
     if dest.exists() {
         info!("缓存命中: {}", dest.display());
     } else {
-        tokio::fs::create_dir_all(cache.dir().join(provider.id())).await?;
+        tokio::fs::create_dir_all(cache.dir().join(provider_id)).await?;
         bytes = Downloader { http }
             .download_to_file(&wp.image_url, &dest)
             .await?;
     }
 
-    crate::wallpaper::set_wallpaper(&dest, &snapshot.fit_mode)?;
-    cache.record_download(provider.id(), wp, bytes, CacheManager::today());
+    crate::wallpaper::set_wallpaper(&dest, fit_mode)?;
+    cache.record_download(provider_id, wp, bytes, CacheManager::today());
 
     let title = if wp.title.is_empty() {
         wp.id.clone()
@@ -402,6 +679,56 @@ async fn run_update(
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_default();
     Ok((title, date))
+}
+
+async fn run_update(
+    cfg: &Arc<Mutex<config::Config>>,
+    data_dir: &Path,
+    last_fetch: &Arc<Mutex<Vec<Wallpaper>>>,
+) -> Result<(String, String), UpdateError> {
+    let snapshot = cfg.lock().map(|c| c.clone()).map_err(|_| "配置状态异常")?;
+    let http = http_client().await?;
+    let (provider_id, wallpapers) = fetch_list(&snapshot, http.clone()).await?;
+    if let Ok(mut slot) = last_fetch.lock() {
+        *slot = wallpapers.clone();
+    }
+    let wp = wallpapers.first().ok_or("Provider 未返回任何壁纸")?;
+    let cache = CacheManager::new(data_dir);
+    apply_wallpaper(&provider_id, wp, http, &cache, &snapshot.fit_mode).await
+}
+
+async fn run_next(
+    cfg: &Arc<Mutex<config::Config>>,
+    data_dir: &Path,
+    last_fetch: &Arc<Mutex<Vec<Wallpaper>>>,
+    cursor: &Arc<Mutex<usize>>,
+) -> Result<(String, String), UpdateError> {
+    let snapshot = cfg.lock().map(|c| c.clone()).map_err(|_| "配置状态异常")?;
+    let mut list = last_fetch
+        .lock()
+        .map(|l| l.clone())
+        .map_err(|_| "状态异常")?;
+    if list.is_empty() {
+        let http = http_client().await?;
+        let (_, wallpapers) = fetch_list(&snapshot, http).await?;
+        list = wallpapers;
+        if let Ok(mut slot) = last_fetch.lock() {
+            *slot = list.clone();
+        }
+    }
+    if list.is_empty() {
+        return Err("Provider 未返回任何壁纸".into());
+    }
+    let index = {
+        let mut c = cursor.lock().map_err(|_| "状态异常")?;
+        let i = *c % list.len();
+        *c = i + 1;
+        i
+    };
+    let wp = list[index].clone();
+    let cache = CacheManager::new(data_dir);
+    let http = http_client().await?;
+    apply_wallpaper("bing", &wp, http, &cache, &snapshot.fit_mode).await
 }
 
 impl eframe::App for App {
@@ -416,6 +743,7 @@ impl eframe::App for App {
             match self.page {
                 Page::Home => self.draw_home(ui),
                 Page::Settings => self.draw_settings(ui),
+                Page::History => self.draw_history(ui),
                 Page::About => self.draw_about(ui),
             }
         });
