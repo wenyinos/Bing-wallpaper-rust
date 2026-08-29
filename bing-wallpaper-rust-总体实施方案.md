@@ -1640,13 +1640,26 @@ Bing
 | 15 | Win7 测试 | Win7 VM/真机已具备，第 28 节测试矩阵完整执行；P0 重点实测 rustls+ring HTTPS 握手 |
 | 16 | 唤起窗口 | 单实例唤起已有窗口所需跨进程通信（命名管道/自定义消息）MVP 不做，留待后续 |
 
-P0 待落地事项：
+P0 待落地事项（P0–P4 已全部实现，2026-08-29）：
 
 ```text
-✓ git init + .gitignore（已完成）
+✓ git init + .gitignore
 ✓ LICENSE 文件（GPL-3.0 官方全文）
-□ Cargo.toml 初版（features 按决策 #2/#3/#4/#5 配置）
-□ rust-toolchain.toml（1.77.2 + rustfmt + clippy）
-□ GitHub Actions 构建工作流（fmt 检查 + windows/MSVC 发布构建）
-□ 编译通过 + Win7 VM 实测 rustls+ring HTTPS 握手
+✓ Cargo.toml 初版（features 按决策 #2/#3/#4/#5 配置）
+✓ rust-toolchain.toml（1.77.2 + rustfmt + clippy）
+✓ GitHub Actions 构建工作流（fmt 检查 + windows/MSVC 发布构建）
+□ 编译通过（等待首次 push 触发 CI）+ Win7 VM 实测 rustls+ring HTTPS 握手
+```
+
+P1–P4 实施记录（2026-08-29，均已通过本机 rustfmt 语法验证 + 依赖锁定）：
+
+```text
+P1: i18n 中英字符串表 / 缓存索引(cache/index.json) / 日期驱动调度(30s首查+5分钟比对)
+    / tray-icon 系统托盘 / HKCU Run 开机启动(--minimized) / 设置页(即改即存)
+P2: image 0.24 缩略图 / 历史壁纸网格页(设为壁纸·打开位置·删除) / 下一张轮换
+    / IDesktopWallpaper(Win10+)+SPI(Win7) 双路径 / tracing-appender 按天日志
+P3: Provider Manifest(内置+用户目录覆盖) / 通用 JSON Provider(JSON Pointer 映射)
+    / URL Provider / 设置页来源下拉 / providers/ 示例清单
+P4: Provider 在线更新(index 签名信封 + 版本比较 + SHA-256 + 可选 ed25519 验签
+    + 原子安装 + TrayAction::ReloadProviders 热重载) / 设置页更新源与公钥配置
 ```
