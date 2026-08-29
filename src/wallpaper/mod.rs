@@ -50,7 +50,7 @@ pub fn set_wallpaper(path: &std::path::Path, fit: &str) -> Result<(), WallpaperE
     {
         let mode = FitMode::parse(fit);
         // Win10+ 优先 IDesktopWallpaper（支持 Span、多显示器语义，方案 §14）
-        if windows::set_via_desktop_wallpaper(path, mode)
+        if desktop_wallpaper::set_via_desktop_wallpaper(path, mode)
             .or_else(|err| {
                 tracing::debug!("IDesktopWallpaper 不可用（Win7 属预期），回退 SPI: {err}");
                 windows::set_via_systemparams(path, mode)

@@ -23,7 +23,7 @@ mod imp {
     }
 
     fn open_run_key(access: u32) -> Result<HKEY, AutostartError> {
-        let mut hkey: HKEY = std::ptr::null_mut();
+        let mut hkey: HKEY = 0;
         let sub = to_wide(RUN_KEY);
         let code = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, sub.as_ptr(), 0, access, &mut hkey) };
         if code != 0 {

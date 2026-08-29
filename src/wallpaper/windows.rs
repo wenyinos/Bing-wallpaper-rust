@@ -1,5 +1,7 @@
 //! Win32 壁纸设置：SystemParametersInfoW + 注册表 WallpaperStyle（方案 §12）。
 
+use std::path::Path;
+
 use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_SZ,
@@ -44,7 +46,7 @@ pub fn set_via_systemparams(path: &Path, fit: FitMode) -> Result<(), WallpaperEr
 
 fn set_desktop_style(fit: FitMode) -> Result<(), WallpaperError> {
     let (style, tile) = style_values(fit);
-    let mut hkey: HKEY = std::ptr::null_mut();
+    let mut hkey: HKEY = 0;
     let sub_key = to_wide(DESKTOP_KEY);
     let code = unsafe {
         RegOpenKeyExW(

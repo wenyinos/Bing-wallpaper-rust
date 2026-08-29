@@ -92,7 +92,7 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
             }
         }
 
-        while unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) } != 0 {
+        while unsafe { PeekMessageW(&mut msg, 0, 0, 0, PM_REMOVE) } != 0 {
             unsafe {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);

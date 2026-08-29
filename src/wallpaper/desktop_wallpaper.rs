@@ -6,7 +6,10 @@ use windows::core::PCWSTR;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
-use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DESKTOP_WALLPAPER_POSITION};
+use windows::Win32::UI::Shell::{
+    DesktopWallpaper, IDesktopWallpaper, DESKTOP_WALLPAPER_POSITION, DWPOS_CENTER, DWPOS_FILL,
+    DWPOS_FIT, DWPOS_SPAN, DWPOS_STRETCH,
+};
 
 use super::{FitMode, WallpaperError};
 use crate::system::to_wide;
@@ -34,10 +37,10 @@ pub fn set_via_desktop_wallpaper(path: &Path, fit: FitMode) -> Result<(), Wallpa
 
 fn position_of(fit: FitMode) -> DESKTOP_WALLPAPER_POSITION {
     match fit {
-        FitMode::Fill => DESKTOP_WALLPAPER_POSITION::DWPOS_FILL,
-        FitMode::Fit => DESKTOP_WALLPAPER_POSITION::DWPOS_FIT,
-        FitMode::Stretch => DESKTOP_WALLPAPER_POSITION::DWPOS_STRETCH,
-        FitMode::Center => DESKTOP_WALLPAPER_POSITION::DWPOS_CENTER,
-        FitMode::Span => DESKTOP_WALLPAPER_POSITION::DWPOS_SPAN,
+        FitMode::Fill => DWPOS_FILL,
+        FitMode::Fit => DWPOS_FIT,
+        FitMode::Stretch => DWPOS_STRETCH,
+        FitMode::Center => DWPOS_CENTER,
+        FitMode::Span => DWPOS_SPAN,
     }
 }

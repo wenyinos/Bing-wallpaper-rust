@@ -31,7 +31,7 @@ mod imp {
     pub fn acquire_single_instance(name: &str) -> Result<bool, SystemError> {
         let wide = to_wide(name);
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
-        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+        if handle == 0 || handle == INVALID_HANDLE_VALUE {
             return Err(SystemError::Api(unsafe { GetLastError() }));
         }
         let already_exists = unsafe { GetLastError() == ERROR_ALREADY_EXISTS };
@@ -43,12 +43,7 @@ mod imp {
         let text = to_wide("BingWallpaper-Rust 已经在运行。");
         let caption = to_wide("BingWallpaper-Rust");
         unsafe {
-            MessageBoxW(
-                std::ptr::null_mut(),
-                text.as_ptr(),
-                caption.as_ptr(),
-                MB_ICONWARNING | MB_OK,
-            );
+            MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONWARNING | MB_OK);
         }
     }
 }
