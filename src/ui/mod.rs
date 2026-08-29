@@ -336,22 +336,36 @@ impl AppUi {
     }
 
     fn refresh_status(&self) {
-        let Ok(s) = self.env.status.lock() else {
-            return;
+        // 先取快照并释放全部借用守卫，再操作控件/加载预览——
+        // load_home_preview 内部也会 borrow_mut(state)，嵌套借用会在
+        // Win32 回调内 panic 并穿越 FFI 边界导致进程直接终止（v0.3.1 崩溃根因）
+        let snapshot = {
+            let Ok(s) = self.env.status.lock() else {
+                return;
+            };
+            (s.message.clone(), s.running, s.last_set.clone())
         };
-        let mut st = self.state.borrow_mut();
-        if s.message != st.last_status {
-            st.last_status = s.message.clone();
-            self.home_status.set_text(&s.message);
-            match &s.last_set {
-                Some(d) => self
-                    .home_last
-                    .set_text(&format!("{}: {d}", self.t().last_set_label)),
-                None => self.home_last.set_text(""),
+        let changed = {
+            let mut st = self.state.borrow_mut();
+            if snapshot.0 == st.last_status {
+                false
+            } else {
+                st.last_status = snapshot.0.clone();
+                true
             }
-            if !s.running {
-                self.load_home_preview();
-            }
+        };
+        if !changed {
+            return;
+        }
+        self.home_status.set_text(&snapshot.0);
+        match &snapshot.2 {
+            Some(d) => self
+                .home_last
+                .set_text(&format!("{}: {d}", self.t().last_set_label)),
+            None => self.home_last.set_text(""),
+        }
+        if !snapshot.1 {
+            self.load_home_preview();
         }
     }
 

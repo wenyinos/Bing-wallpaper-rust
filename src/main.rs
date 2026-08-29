@@ -57,6 +57,13 @@ fn main() {
         .with_writer(log_writer)
         .init();
 
+    // panic 钩子：任何线程 panic 先落日志再走默认终止（无控制台环境下唯一的现场线索）
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        default_hook(info);
+    }));
+
     info!("数据目录: {}", data_dir.display());
 
     let cfg = Arc::new(Mutex::new(Config::load(&data_dir)));
