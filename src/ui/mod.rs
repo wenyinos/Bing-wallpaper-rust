@@ -787,10 +787,18 @@ fn build_children(ui: &mut AppUi) {
             y += 40;
         }};
     }
-    combo_row!(ui.s_provider_label, t.provider_label, ui.s_provider_combo);
-    combo_row!(ui.s_preset_label, t.preset_label, ui.s_preset_combo);
-    combo_row!(ui.s_fit_label, t.fit_mode_label, ui.s_fit_combo);
-    combo_row!(ui.s_lang_label, t.language_label, ui.s_lang_combo);
+    combo_row!(
+        &mut ui.s_provider_label,
+        t.provider_label,
+        &mut ui.s_provider_combo
+    );
+    combo_row!(
+        &mut ui.s_preset_label,
+        t.preset_label,
+        &mut ui.s_preset_combo
+    );
+    combo_row!(&mut ui.s_fit_label, t.fit_mode_label, &mut ui.s_fit_combo);
+    combo_row!(&mut ui.s_lang_label, t.language_label, &mut ui.s_lang_combo);
 
     nwg::CheckBox::builder()
         .parent(&ui.settings_frame)
