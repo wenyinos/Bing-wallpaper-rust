@@ -105,6 +105,8 @@ fn main() -> eframe::Result<()> {
         last_fetch: Arc::new(Mutex::new(Vec::new())),
         fetch_cursor: Arc::new(Mutex::new(0)),
         providers,
+        events_tx: tray_tx.clone(),
+        provider_check_msg: Arc::new(Mutex::new(None)),
     });
 
     // 系统托盘（决策 #5）
@@ -131,7 +133,6 @@ fn main() -> eframe::Result<()> {
                 env,
                 rt_handle,
                 tray_rx,
-                tray_tx,
                 cc.egui_ctx.clone(),
             )))
         }),

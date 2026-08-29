@@ -32,6 +32,8 @@ pub enum TrayAction {
     Settings,
     About,
     Quit,
+    /// P4：Provider 在线更新完成后重载注册表（UI 线程执行）
+    ReloadProviders,
 }
 
 #[cfg(windows)]

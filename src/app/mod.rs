@@ -57,6 +57,10 @@ pub struct UpdateEnv {
     pub fetch_cursor: Arc<Mutex<usize>>,
     /// Provider 注册表（P3：内置 Bing + 用户 Manifest，同 id 覆盖）
     pub providers: Arc<Mutex<Vec<Arc<LoadedProvider>>>>,
+    /// 事件回注通道（P4：Provider 更新完成后请求 UI 重载注册表）
+    pub events_tx: std::sync::mpsc::Sender<TrayAction>,
+    /// P4：Provider 更新检查结果消息（后台任务写、UI 读，5 秒后淡出）
+    pub provider_check_msg: Arc<Mutex<Option<(String, Instant)>>>,
 }
 
 pub struct App {
@@ -67,7 +71,6 @@ pub struct App {
     pub page: Page,
     pub exit_requested: bool,
     pub events_rx: std::sync::mpsc::Receiver<TrayAction>,
-    pub events_tx: std::sync::mpsc::Sender<TrayAction>,
     pub settings_hint: Option<(String, Instant)>,
     /// 历史页：条目快照 + 缩略图纹理缓存
     pub history_entries: Vec<CacheEntry>,
@@ -80,7 +83,6 @@ impl App {
         env: Arc<UpdateEnv>,
         rt: Handle,
         events_rx: std::sync::mpsc::Receiver<TrayAction>,
-        events_tx: std::sync::mpsc::Sender<TrayAction>,
         ctx: egui::Context,
     ) -> Self {
         let lang = Lang::parse(
@@ -105,7 +107,6 @@ impl App {
             page: Page::Home,
             exit_requested: false,
             events_rx,
-            events_tx,
             settings_hint: None,
             history_entries: Vec::new(),
             history_stale: true,
@@ -141,7 +142,76 @@ impl App {
                 self.exit_requested = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            TrayAction::ReloadProviders => {
+                let loaded = crate::provider::manifest::load_all(&self.env.data_dir);
+                if let Ok(mut guard) = self.env.providers.lock() {
+                    *guard = loaded.into_iter().map(Arc::new).collect();
+                }
+                info!("Provider 注册表已重载（共 {} 项）", self.provider_count());
+            }
         }
+    }
+
+    fn provider_count(&self) -> usize {
+        self.env.providers.lock().map(|p| p.len()).unwrap_or(0)
+    }
+
+    /// P4：检查 Provider 在线更新（方案 §9 第二阶段）
+    fn spawn_provider_check(&self, ctx: &egui::Context) {
+        let t = crate::i18n::table(self.lang);
+        if let Ok(mut slot) = self.env.provider_check_msg.lock() {
+            *slot = Some((t.provider_checking.into(), Instant::now()));
+        }
+        let env = self.env.clone();
+        let ctx = ctx.clone();
+        let lang = self.lang;
+        self.rt.spawn(async move {
+            let snapshot = match env.cfg.lock() {
+                Ok(cfg) => cfg.clone(),
+                Err(err) => {
+                    error!("Provider 更新检查失败: {err}");
+                    return;
+                }
+            };
+            let t = crate::i18n::table(lang);
+            let build = reqwest::Client::builder()
+                .user_agent(concat!("BingWallpaper-Rust/", env!("CARGO_PKG_VERSION")))
+                .timeout(std::time::Duration::from_secs(30))
+                .build();
+            let (message, has_updates) = match build {
+                Err(err) => (format!("{}{err}", t.status_failed_prefix), false),
+                Ok(http) => {
+                    match crate::provider::repo::check_for_updates(
+                        &http,
+                        &snapshot.provider_repo_url,
+                        snapshot.provider_repo_public_key.as_deref(),
+                        &env.data_dir,
+                    )
+                    .await
+                    {
+                        Ok(report) => {
+                            info!("Provider 更新检查完成: {report}");
+                            if report.updated.is_empty() {
+                                (t.provider_up_to_date.into(), false)
+                            } else {
+                                (format!("{}: {report}", t.provider_check_update), true)
+                            }
+                        }
+                        Err(err) => {
+                            error!("Provider 更新检查失败: {err}");
+                            (format!("{}{err}", t.status_failed_prefix), false)
+                        }
+                    }
+                }
+            };
+            if let Ok(mut slot) = env.provider_check_msg.lock() {
+                *slot = Some((message, Instant::now()));
+            }
+            if has_updates {
+                let _ = env.events_tx.send(TrayAction::ReloadProviders);
+            }
+            ctx.request_repaint();
+        });
     }
 
     fn draw_tabs(&mut self, ui: &mut egui::Ui) {
@@ -192,9 +262,30 @@ impl App {
             });
         });
         ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+            let source_name = {
+                let wanted = self
+                    .env
+                    .cfg
+                    .lock()
+                    .map(|c| c.provider.clone())
+                    .unwrap_or_default();
+                self.env
+                    .providers
+                    .lock()
+                    .ok()
+                    .and_then(|providers| {
+                        providers
+                            .iter()
+                            .find(|p| p.manifest.id == wanted)
+                            .or_else(|| providers.first())
+                            .map(|p| p.manifest.name.clone())
+                    })
+                    .unwrap_or_else(|| wanted)
+            };
             ui.label(format!(
-                "{}: Bing    {}: {}",
+                "{}: {}    {}: {}",
                 t.source_label,
+                source_name,
                 t.data_dir_label,
                 self.env.data_dir.display()
             ));
@@ -466,6 +557,42 @@ impl App {
                     ui.add(egui::DragValue::new(&mut cfg.cache_days).range(7..=365));
                     ui.end_row();
                 });
+
+            // P4：Provider 在线更新（方案 §9 第二阶段 / §26）
+            ui.add_space(12.0);
+            ui.separator();
+            if let Ok(mut cfg) = self.env.cfg.lock() {
+                ui.label(t.provider_repo_label);
+                ui.add(
+                    egui::TextEdit::singleline(&mut cfg.provider_repo_url)
+                        .hint_text(t.provider_repo_hint)
+                        .desired_width(420.0),
+                );
+                ui.add_space(4.0);
+                ui.label(t.provider_public_key_label);
+                let mut key = cfg.provider_repo_public_key.clone().unwrap_or_default();
+                if ui
+                    .add(egui::TextEdit::singleline(&mut key).desired_width(420.0))
+                    .changed()
+                {
+                    cfg.provider_repo_public_key = if key.trim().is_empty() {
+                        None
+                    } else {
+                        Some(key.trim().to_string())
+                    };
+                }
+            }
+            ui.add_space(4.0);
+            if ui.button(t.provider_check_update).clicked() {
+                self.spawn_provider_check(ui.ctx());
+            }
+            if let Ok(slot) = self.env.provider_check_msg.lock() {
+                if let Some((msg, at)) = slot.as_ref() {
+                    if at.elapsed().as_secs() < 8 {
+                        ui.label(msg);
+                    }
+                }
+            }
 
             // 即改即存
             if let Ok(cfg) = self.env.cfg.lock() {

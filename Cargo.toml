@@ -34,6 +34,9 @@ tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
 # 日志文件（方案 §18，按天滚动）
 tracing-appender = "0.2"
+# P4：Provider 在线更新完整性校验（方案 §25：SHA-256 + 可选 ed25519 签名）
+sha2 = "0.10"
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["fast", "signature"] }
 
 # Windows API（决策：windows-sys 而非 windows；P1 引入 tray-icon 时才增加 windows crate）
 [target.'cfg(windows)'.dependencies]

@@ -6,6 +6,7 @@
 pub mod bing;
 pub mod json;
 pub mod manifest;
+pub mod repo;
 pub mod url;
 
 use async_trait::async_trait;
