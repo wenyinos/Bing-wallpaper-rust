@@ -625,10 +625,10 @@ fn build_children(ui: &mut AppUi) {
 
     // 页签
     for (btn, text, x) in [
-        (&ui.tab_home, t.tab_home, 8),
-        (&ui.tab_history, t.tab_history, 108),
-        (&ui.tab_settings, t.tab_settings, 208),
-        (&ui.tab_about, t.tab_about, 308),
+        (&mut ui.tab_home, t.tab_home, 8),
+        (&mut ui.tab_history, t.tab_history, 108),
+        (&mut ui.tab_settings, t.tab_settings, 208),
+        (&mut ui.tab_about, t.tab_about, 308),
     ] {
         nwg::Button::builder()
             .parent(&ui.window)
@@ -642,10 +642,10 @@ fn build_children(ui: &mut AppUi) {
 
     // 页面容器（主页可见，其余隐藏，由页签切换）
     for (frame, visible) in [
-        (&ui.home_frame, true),
-        (&ui.history_frame, false),
-        (&ui.settings_frame, false),
-        (&ui.about_frame, false),
+        (&mut ui.home_frame, true),
+        (&mut ui.history_frame, false),
+        (&mut ui.settings_frame, false),
+        (&mut ui.about_frame, false),
     ] {
         nwg::Frame::builder()
             .parent(&ui.window)
