@@ -56,7 +56,11 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
     let quit = MenuItem::with_id("quit", t.tray_quit, true, None);
     menu.append_items(&[&open, &update, &next, &history, &settings, &about, &quit])?;
 
-    let icon = solid_icon(32, 32, [36, 98, 217, 255])?;
+    // 优先使用嵌入的真实图标；解码失败回退纯色占位
+    let icon = match crate::icon::decoded() {
+        Some((width, height, rgba)) => tray_icon::Icon::from_rgba(rgba, width, height)?,
+        None => solid_icon(32, 32, [36, 98, 217, 255])?,
+    };
 
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))

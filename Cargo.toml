@@ -31,7 +31,7 @@ dirs = "5.0.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
 # 图片处理（P2：缩略图/历史壁纸预览；0.24 复用依赖树中已有版本，只开需要的解码器）
-image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.24", default-features = false, features = ["jpeg", "png", "ico"] }
 # 日志文件（方案 §18，按天滚动）
 tracing-appender = "0.2"
 # P4：Provider 在线更新完整性校验（方案 §25：SHA-256 + 可选 ed25519 签名）
@@ -56,3 +56,7 @@ opt-level = "z"      # 小体积优先（壁纸客户端为 IO 密集，性能�
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Windows exe 资源嵌入（图标/版本信息）
+[build-dependencies]
+winresource = "0.1"

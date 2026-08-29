@@ -8,6 +8,7 @@ mod autostart;
 mod cache;
 mod downloader;
 mod i18n;
+mod icon;
 mod provider;
 mod scheduler;
 mod system;
@@ -23,8 +24,15 @@ use app::config::Config;
 use app::{App, Status};
 use i18n::Lang;
 
-/// 占位应用图标：运行时生成纯色 RGBA（真实 icon.ico 后续替换）
+/// 窗口图标：解码嵌入的 icon.ico；失败回退纯色占位
 fn runtime_icon() -> eframe::egui::IconData {
+    if let Some((width, height, rgba)) = icon::decoded() {
+        return eframe::egui::IconData {
+            width,
+            height,
+            rgba,
+        };
+    }
     let (width, height) = (32u32, 32u32);
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     for _ in 0..(width * height) {
