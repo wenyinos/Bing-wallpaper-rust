@@ -678,6 +678,7 @@ fn build_children(ui: &mut AppUi) {
         .position((344, 88))
         .size((336, 22))
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.home_last)
         .unwrap();
     nwg::Button::builder()
@@ -696,15 +697,13 @@ fn build_children(ui: &mut AppUi) {
         .font(Some(f))
         .build(&mut ui.home_next_btn)
         .unwrap();
+    let source_text = format!("{}: {}", t.data_dir_label, ui.env.data_dir.display());
     nwg::Label::builder()
         .parent(&ui.home_frame)
         .position((10, 432))
         .size((668, 24))
-        .text(format!(
-            "{}: {}",
-            t.data_dir_label,
-            ui.env.data_dir.display()
-        ))
+        .text(&source_text)
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.home_source)
         .unwrap();
@@ -721,7 +720,6 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.history_frame)
         .position((344, 10))
         .size((336, 190))
-        .flags(nwg::LabelFlags::VISIBLE)
         .background_color(Some([240, 240, 240]))
         .build(&mut ui.history_preview)
         .unwrap();
@@ -730,6 +728,7 @@ fn build_children(ui: &mut AppUi) {
         .position((344, 208))
         .size((336, 22))
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.history_title)
         .unwrap();
     nwg::Button::builder()
@@ -760,7 +759,6 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.history_frame)
         .position((10, 416))
         .size((320, 30))
-        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.history_refresh)
         .font(Some(f))
         .build(&mut ui.history_refresh_btn)
@@ -776,6 +774,7 @@ fn build_children(ui: &mut AppUi) {
                 .size((240, 24))
                 .text($text)
                 .font(Some(f))
+                .flags(nwg::LabelFlags::VISIBLE)
                 .build($label)
                 .unwrap();
             nwg::ComboBox::builder()
@@ -806,7 +805,6 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.settings_frame)
         .position((14, y))
         .size((650, 24))
-        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.autostart_label)
         .font(Some(f))
         .build(&mut ui.s_startup_cb)
@@ -818,13 +816,13 @@ fn build_children(ui: &mut AppUi) {
         .size((240, 24))
         .text(t.cache_days_label)
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.s_cache_label)
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
         .position((264, y))
         .size((120, 24))
-        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_cache_input)
         .unwrap();
@@ -835,13 +833,13 @@ fn build_children(ui: &mut AppUi) {
         .size((240, 24))
         .text(t.rotate_label)
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.s_rotate_label)
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
         .position((264, y))
         .size((120, 24))
-        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_rotate_input)
         .unwrap();
@@ -852,13 +850,13 @@ fn build_children(ui: &mut AppUi) {
         .size((240, 24))
         .text(t.provider_repo_label)
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.s_repo_label)
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
         .position((264, y))
         .size((400, 24))
-        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_repo_input)
         .unwrap();
@@ -869,6 +867,7 @@ fn build_children(ui: &mut AppUi) {
         .size((240, 24))
         .text(t.provider_public_key_label)
         .font(Some(f))
+        .flags(nwg::LabelFlags::VISIBLE)
         .build(&mut ui.s_pubkey_label)
         .unwrap();
     nwg::TextInput::builder()
@@ -883,7 +882,6 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.settings_frame)
         .position((14, y))
         .size((220, 30))
-        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.provider_check_update)
         .font(Some(f))
         .build(&mut ui.s_check_btn)
