@@ -4,6 +4,9 @@
 //! 核心程序只依赖 `Wallpaper` 与 `WallpaperProvider`，不感知任何数据源的 JSON 结构。
 
 pub mod bing;
+pub mod json;
+pub mod manifest;
+pub mod url;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

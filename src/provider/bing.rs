@@ -33,6 +33,26 @@ impl BingProvider {
             }
         }
     }
+
+    /// 由 Manifest 构建（方案 §8：Bing 接口变化优先改 providers/bing.json）
+    pub fn from_manifest(manifest: &super::manifest::ProviderManifest) -> Self {
+        let mkt = manifest
+            .params
+            .get("mkt")
+            .cloned()
+            .unwrap_or_else(|| "zh-CN".into());
+        let endpoint = if manifest.endpoint.is_empty() {
+            if mkt.starts_with("zh") {
+                "https://cn.bing.com"
+            } else {
+                "https://www.bing.com"
+            }
+            .into()
+        } else {
+            manifest.endpoint.clone()
+        };
+        Self { endpoint, mkt }
+    }
 }
 
 #[derive(Debug, Deserialize)]

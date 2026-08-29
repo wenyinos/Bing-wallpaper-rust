@@ -16,8 +16,8 @@ use tracing::{error, info};
 use crate::cache::{CacheEntry, CacheManager};
 use crate::downloader::Downloader;
 use crate::i18n::Lang;
-use crate::provider::bing::BingProvider;
-use crate::provider::{ProviderContext, Wallpaper, WallpaperProvider};
+use crate::provider::manifest::LoadedProvider;
+use crate::provider::{ProviderContext, Wallpaper};
 use crate::scheduler;
 use crate::tray::TrayAction;
 
@@ -46,11 +46,22 @@ impl Status {
     }
 }
 
-pub struct App {
+/// 更新动作共享环境：UI / 托盘 / 调度器三方共用的状态集合
+#[derive(Clone)]
+pub struct UpdateEnv {
     pub cfg: Arc<Mutex<config::Config>>,
     pub data_dir: PathBuf,
-    pub rt: Handle,
     pub status: Arc<Mutex<Status>>,
+    /// 最近一次 fetch 的壁纸列表（"下一张"轮换数据源）
+    pub last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
+    pub fetch_cursor: Arc<Mutex<usize>>,
+    /// Provider 注册表（P3：内置 Bing + 用户 Manifest，同 id 覆盖）
+    pub providers: Arc<Mutex<Vec<Arc<LoadedProvider>>>>,
+}
+
+pub struct App {
+    pub env: Arc<UpdateEnv>,
+    pub rt: Handle,
     pub cache: CacheManager,
     pub lang: Lang,
     pub page: Page,
@@ -58,9 +69,6 @@ pub struct App {
     pub events_rx: std::sync::mpsc::Receiver<TrayAction>,
     pub events_tx: std::sync::mpsc::Sender<TrayAction>,
     pub settings_hint: Option<(String, Instant)>,
-    /// 最近一次 fetch 的壁纸列表（"下一张"轮换数据源）
-    pub last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-    pub fetch_cursor: Arc<Mutex<usize>>,
     /// 历史页：条目快照 + 缩略图纹理缓存
     pub history_entries: Vec<CacheEntry>,
     pub history_stale: bool,
@@ -68,53 +76,37 @@ pub struct App {
 }
 
 impl App {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        cfg: Arc<Mutex<config::Config>>,
-        data_dir: PathBuf,
+        env: Arc<UpdateEnv>,
         rt: Handle,
-        status: Arc<Mutex<Status>>,
         events_rx: std::sync::mpsc::Receiver<TrayAction>,
         events_tx: std::sync::mpsc::Sender<TrayAction>,
         ctx: egui::Context,
     ) -> Self {
-        let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
-        let last_fetch = Arc::new(Mutex::new(Vec::new()));
-        let fetch_cursor = Arc::new(Mutex::new(0));
+        let lang = Lang::parse(
+            &env.cfg
+                .lock()
+                .map(|c| c.language.clone())
+                .unwrap_or_default(),
+        );
         // 定时调度：启动 30 秒后首查，之后每 5 分钟比对壁纸日期（决策 #10）
         scheduler::spawn(scheduler::SchedulerDeps {
             rt: rt.clone(),
-            cfg: cfg.clone(),
-            data_dir: data_dir.clone(),
-            status: status.clone(),
+            env: env.clone(),
             ctx: ctx.clone(),
-            last_fetch: last_fetch.clone(),
-            fetch_cursor: fetch_cursor.clone(),
         });
         // 启动即尝试一次更新（缓存命中则零下载）
-        spawn_update(
-            &rt,
-            &cfg,
-            &data_dir,
-            &status,
-            &ctx,
-            lang,
-            last_fetch.clone(),
-        );
+        spawn_update(&rt, &env, &ctx, lang);
         Self {
-            cfg,
-            data_dir,
+            cache: CacheManager::new(&env.data_dir),
+            env,
             rt,
-            status,
-            cache: CacheManager::new(&data_dir),
             lang,
             page: Page::Home,
             exit_requested: false,
             events_rx,
             events_tx,
             settings_hint: None,
-            last_fetch,
-            fetch_cursor,
             history_entries: Vec::new(),
             history_stale: true,
             textures: HashMap::new(),
@@ -122,28 +114,11 @@ impl App {
     }
 
     fn spawn_manual_update(&self, ctx: &egui::Context) {
-        spawn_update(
-            &self.rt,
-            &self.cfg,
-            &self.data_dir,
-            &self.status,
-            ctx,
-            self.lang,
-            self.last_fetch.clone(),
-        );
+        spawn_update(&self.rt, &self.env, ctx, self.lang);
     }
 
     fn spawn_next_wallpaper(&self, ctx: &egui::Context) {
-        spawn_next(
-            &self.rt,
-            &self.cfg,
-            &self.data_dir,
-            &self.status,
-            ctx,
-            self.lang,
-            self.last_fetch.clone(),
-            self.fetch_cursor.clone(),
-        );
+        spawn_next(&self.rt, &self.env, ctx, self.lang);
     }
 
     fn handle_tray_action(&mut self, action: TrayAction, ctx: &egui::Context) {
@@ -190,6 +165,7 @@ impl App {
     fn draw_home(&mut self, ui: &mut egui::Ui) {
         let t = crate::i18n::table(self.lang);
         let status = self
+            .env
             .status
             .lock()
             .map(|s| s.clone())
@@ -220,7 +196,7 @@ impl App {
                 "{}: Bing    {}: {}",
                 t.source_label,
                 t.data_dir_label,
-                self.data_dir.display()
+                self.env.data_dir.display()
             ));
         });
     }
@@ -320,12 +296,13 @@ impl App {
         let t = crate::i18n::table(self.lang);
         let path = self.cache.dir().join(&entry.file);
         let fit = self
+            .env
             .cfg
             .lock()
             .map(|c| c.fit_mode.clone())
             .unwrap_or_else(|_| "fill".into());
-        let status = self.status.clone();
-        let data_dir = self.data_dir.clone();
+        let status = self.env.status.clone();
+        let data_dir = self.env.data_dir.clone();
         let ctx = ctx.clone();
         let title = entry
             .title
@@ -379,9 +356,38 @@ impl App {
                 .num_columns(2)
                 .spacing([12.0, 8.0])
                 .show(ui, |ui| {
-                    let Ok(mut cfg) = self.cfg.lock() else {
+                    let Ok(mut cfg) = self.env.cfg.lock() else {
                         return;
                     };
+
+                    // 壁纸来源（P3：Provider 注册表，方案 §5/§24）
+                    ui.label(t.provider_label);
+                    let options: Vec<(String, String)> = match self.env.providers.lock() {
+                        Ok(providers) => providers
+                            .iter()
+                            .map(|p| {
+                                (
+                                    p.manifest.id.clone(),
+                                    format!("{} ({})", p.manifest.name, p.manifest.id),
+                                )
+                            })
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    };
+                    egui::ComboBox::from_id_source("provider")
+                        .selected_text(
+                            options
+                                .iter()
+                                .find(|(id, _)| *id == cfg.provider)
+                                .map(|(_, label)| label.clone())
+                                .unwrap_or_else(|| cfg.provider.clone()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (id, label) in &options {
+                                ui.selectable_value(&mut cfg.provider, id.clone(), label);
+                            }
+                        });
+                    ui.end_row();
 
                     // Bing 预设（决策 #9 双预设）
                     ui.label(t.preset_label);
@@ -462,8 +468,8 @@ impl App {
                 });
 
             // 即改即存
-            if let Ok(cfg) = self.cfg.lock() {
-                if let Err(err) = config::Config::save(&cfg, &self.data_dir) {
+            if let Ok(cfg) = self.env.cfg.lock() {
+                if let Err(err) = config::Config::save(&cfg, &self.env.data_dir) {
                     error!("保存配置失败: {err}");
                 }
             }
@@ -504,69 +510,26 @@ fn open_location(path: &str) {
 fn open_location(_file: &str) {}
 
 /// 供 UI 按钮 / 托盘 / 调度器共用的更新触发入口
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_update(
-    rt: &Handle,
-    cfg: &Arc<Mutex<config::Config>>,
-    data_dir: &Path,
-    status: &Arc<Mutex<Status>>,
-    ctx: &egui::Context,
-    lang: Lang,
-    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-) {
-    let data_dir = data_dir.to_path_buf();
-    let status = status.clone();
+pub fn spawn_update(rt: &Handle, env: &Arc<UpdateEnv>, ctx: &egui::Context, lang: Lang) {
+    let env = env.clone();
     let ctx = ctx.clone();
-    rt.spawn(update_task(
-        cfg.clone(),
-        data_dir,
-        status,
-        ctx,
-        lang,
-        last_fetch,
-    ));
+    rt.spawn(update_task(env, ctx, lang));
 }
 
 /// "下一张"：轮换最近 fetch 列表中的壁纸（方案 §15 托盘"下一张"）
-#[allow(clippy::too_many_arguments)]
-pub fn spawn_next(
-    rt: &Handle,
-    cfg: &Arc<Mutex<config::Config>>,
-    data_dir: &Path,
-    status: &Arc<Mutex<Status>>,
-    ctx: &egui::Context,
-    lang: Lang,
-    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-    cursor: Arc<Mutex<usize>>,
-) {
-    let data_dir = data_dir.to_path_buf();
-    let status = status.clone();
+pub fn spawn_next(rt: &Handle, env: &Arc<UpdateEnv>, ctx: &egui::Context, lang: Lang) {
+    let env = env.clone();
     let ctx = ctx.clone();
-    rt.spawn(next_task(
-        cfg.clone(),
-        data_dir,
-        status,
-        ctx,
-        lang,
-        last_fetch,
-        cursor,
-    ));
+    rt.spawn(next_task(env, ctx, lang));
 }
 
-async fn update_task(
-    cfg: Arc<Mutex<config::Config>>,
-    data_dir: PathBuf,
-    status: Arc<Mutex<Status>>,
-    ctx: egui::Context,
-    lang: Lang,
-    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-) {
+async fn update_task(env: Arc<UpdateEnv>, ctx: egui::Context, lang: Lang) {
     let t = crate::i18n::table(lang);
-    set_status(&status, true, t.status_updating.into(), &ctx);
-    match run_update(&cfg, &data_dir, &last_fetch).await {
+    set_status(&env.status, true, t.status_updating.into(), &ctx);
+    match run_update(&env).await {
         Ok((title, date)) => {
             info!("壁纸更新完成: {title}（{date}）");
-            if let Ok(mut s) = status.lock() {
+            if let Ok(mut s) = env.status.lock() {
                 s.running = false;
                 s.message = format!("{}{title}", t.status_done_prefix);
                 s.last_set = Some(date);
@@ -576,7 +539,7 @@ async fn update_task(
         Err(err) => {
             error!("壁纸更新失败: {err}");
             set_status(
-                &status,
+                &env.status,
                 false,
                 format!("{}{err}", t.status_failed_prefix),
                 &ctx,
@@ -585,21 +548,13 @@ async fn update_task(
     }
 }
 
-async fn next_task(
-    cfg: Arc<Mutex<config::Config>>,
-    data_dir: PathBuf,
-    status: Arc<Mutex<Status>>,
-    ctx: egui::Context,
-    lang: Lang,
-    last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-    cursor: Arc<Mutex<usize>>,
-) {
+async fn next_task(env: Arc<UpdateEnv>, ctx: egui::Context, lang: Lang) {
     let t = crate::i18n::table(lang);
-    set_status(&status, true, t.status_updating.into(), &ctx);
-    match run_next(&cfg, &data_dir, &last_fetch, &cursor).await {
+    set_status(&env.status, true, t.status_updating.into(), &ctx);
+    match run_next(&env).await {
         Ok((title, date)) => {
             info!("切换壁纸: {title}（{date}）");
-            if let Ok(mut s) = status.lock() {
+            if let Ok(mut s) = env.status.lock() {
                 s.running = false;
                 s.message = format!("{}{title}", t.status_done_prefix);
                 s.last_set = Some(date);
@@ -609,7 +564,7 @@ async fn next_task(
         Err(err) => {
             error!("切换壁纸失败: {err}");
             set_status(
-                &status,
+                &env.status,
                 false,
                 format!("{}{err}", t.status_failed_prefix),
                 &ctx,
@@ -635,16 +590,17 @@ async fn http_client() -> Result<reqwest::Client, UpdateError> {
         .build()?)
 }
 
-async fn fetch_list(
-    cfg: &config::Config,
-    http: reqwest::Client,
-) -> Result<(String, Vec<Wallpaper>), UpdateError> {
-    // P3 起：按 cfg.provider 从注册表选择；P2 固定 Bing
-    let provider = BingProvider::from_preset(&cfg.bing_preset);
-    let id = provider.id().to_string();
-    let context = ProviderContext { http };
-    let list = provider.fetch(&context).await?;
-    Ok((id, list))
+/// 从注册表选择 Provider：按 cfg.provider 匹配，未命中回退第一个（内置 Bing）
+fn select_provider(
+    providers: &[Arc<LoadedProvider>],
+    wanted: &str,
+) -> Result<Arc<LoadedProvider>, UpdateError> {
+    providers
+        .iter()
+        .find(|p| p.manifest.id == wanted)
+        .or_else(|| providers.first())
+        .cloned()
+        .ok_or("Provider 注册表为空".into())
 }
 
 /// 下载（或缓存命中）并把单张壁纸设为桌面
@@ -681,38 +637,47 @@ async fn apply_wallpaper(
     Ok((title, date))
 }
 
-async fn run_update(
-    cfg: &Arc<Mutex<config::Config>>,
-    data_dir: &Path,
-    last_fetch: &Arc<Mutex<Vec<Wallpaper>>>,
-) -> Result<(String, String), UpdateError> {
-    let snapshot = cfg.lock().map(|c| c.clone()).map_err(|_| "配置状态异常")?;
+async fn run_update(env: &Arc<UpdateEnv>) -> Result<(String, String), UpdateError> {
+    let snapshot = env
+        .cfg
+        .lock()
+        .map(|c| c.clone())
+        .map_err(|_| "配置状态异常")?;
+    let selected = {
+        let guard = env.providers.lock().map_err(|_| "状态异常")?;
+        select_provider(&guard, &snapshot.provider)
+    }?;
     let http = http_client().await?;
-    let (provider_id, wallpapers) = fetch_list(&snapshot, http.clone()).await?;
-    if let Ok(mut slot) = last_fetch.lock() {
+    let context = ProviderContext { http: http.clone() };
+    let wallpapers = selected.provider.fetch(&context).await?;
+    if let Ok(mut slot) = env.last_fetch.lock() {
         *slot = wallpapers.clone();
     }
     let wp = wallpapers.first().ok_or("Provider 未返回任何壁纸")?;
-    let cache = CacheManager::new(data_dir);
-    apply_wallpaper(&provider_id, wp, http, &cache, &snapshot.fit_mode).await
+    let cache = CacheManager::new(&env.data_dir);
+    apply_wallpaper(&selected.manifest.id, wp, http, &cache, &snapshot.fit_mode).await
 }
 
-async fn run_next(
-    cfg: &Arc<Mutex<config::Config>>,
-    data_dir: &Path,
-    last_fetch: &Arc<Mutex<Vec<Wallpaper>>>,
-    cursor: &Arc<Mutex<usize>>,
-) -> Result<(String, String), UpdateError> {
-    let snapshot = cfg.lock().map(|c| c.clone()).map_err(|_| "配置状态异常")?;
-    let mut list = last_fetch
+async fn run_next(env: &Arc<UpdateEnv>) -> Result<(String, String), UpdateError> {
+    let snapshot = env
+        .cfg
+        .lock()
+        .map(|c| c.clone())
+        .map_err(|_| "配置状态异常")?;
+    let mut list = env
+        .last_fetch
         .lock()
         .map(|l| l.clone())
         .map_err(|_| "状态异常")?;
     if list.is_empty() {
+        let selected = {
+            let guard = env.providers.lock().map_err(|_| "状态异常")?;
+            select_provider(&guard, &snapshot.provider)
+        }?;
         let http = http_client().await?;
-        let (_, wallpapers) = fetch_list(&snapshot, http).await?;
-        list = wallpapers;
-        if let Ok(mut slot) = last_fetch.lock() {
+        let context = ProviderContext { http };
+        list = selected.provider.fetch(&context).await?;
+        if let Ok(mut slot) = env.last_fetch.lock() {
             *slot = list.clone();
         }
     }
@@ -720,15 +685,19 @@ async fn run_next(
         return Err("Provider 未返回任何壁纸".into());
     }
     let index = {
-        let mut c = cursor.lock().map_err(|_| "状态异常")?;
+        let mut c = env.fetch_cursor.lock().map_err(|_| "状态异常")?;
         let i = *c % list.len();
         *c = i + 1;
         i
     };
     let wp = list[index].clone();
-    let cache = CacheManager::new(data_dir);
+    let selected = {
+        let guard = env.providers.lock().map_err(|_| "状态异常")?;
+        select_provider(&guard, &snapshot.provider)
+    }?;
+    let cache = CacheManager::new(&env.data_dir);
     let http = http_client().await?;
-    apply_wallpaper("bing", &wp, http, &cache, &snapshot.fit_mode).await
+    apply_wallpaper(&selected.manifest.id, &wp, http, &cache, &snapshot.fit_mode).await
 }
 
 impl eframe::App for App {

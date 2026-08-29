@@ -7,65 +7,55 @@
 //!
 //! 手动更新不经过调度器（直接由 UI/托盘触发）。
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use eframe::egui;
 use tokio::runtime::Handle;
 use tracing::{debug, info};
 
-use crate::app::{spawn_update, Status};
+use crate::app::spawn_update;
+use crate::app::UpdateEnv;
 use crate::cache::CacheManager;
 use crate::i18n::Lang;
-use crate::provider::Wallpaper;
 
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(30);
 const CHECK_INTERVAL: Duration = Duration::from_secs(300);
 
 pub struct SchedulerDeps {
     pub rt: Handle,
-    pub cfg: Arc<Mutex<crate::app::config::Config>>,
-    pub data_dir: PathBuf,
-    pub status: Arc<Mutex<Status>>,
+    pub env: Arc<UpdateEnv>,
     pub ctx: egui::Context,
-    pub last_fetch: Arc<Mutex<Vec<Wallpaper>>>,
-    pub fetch_cursor: Arc<Mutex<usize>>,
 }
 
 pub fn spawn(deps: SchedulerDeps) {
-    let cfg = deps.cfg.clone();
-    let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
-    let data_dir = deps.data_dir.clone();
-    let status = deps.status.clone();
-    let ctx = deps.ctx.clone();
-    let rt = deps.rt.clone();
-    let last_fetch = deps.last_fetch.clone();
+    let env = deps.env.clone();
+    let lang = Lang::parse(
+        &env.cfg
+            .lock()
+            .map(|c| c.language.clone())
+            .unwrap_or_default(),
+    );
+    let data_dir = env.data_dir.clone();
 
     std::thread::Builder::new()
         .name("scheduler".into())
         .spawn(move || {
-            // 阻塞等待复用 tokio 定时器；调度线程自身只做日期比对
             let cache = CacheManager::new(&data_dir);
             std::thread::sleep(FIRST_CHECK_DELAY);
             loop {
-                let auto = cfg.lock().map(|c| c.auto_update).unwrap_or(false);
+                let (auto, cache_days) = match env.cfg.lock() {
+                    Ok(cfg) => (cfg.auto_update, cfg.cache_days),
+                    Err(_) => (false, 30),
+                };
                 if auto && !cache.is_today_set() {
                     info!("调度器：检测到今日壁纸未设置，触发更新");
-                    spawn_update(
-                        &rt,
-                        &cfg,
-                        &data_dir,
-                        &status,
-                        &ctx,
-                        lang,
-                        last_fetch.clone(),
-                    );
+                    spawn_update(&deps.rt, &env, &deps.ctx, lang);
                 } else {
                     debug!("调度器：今日壁纸已设置或自动更新关闭，跳过");
                 }
                 // 顺带做每日一次的过期缓存清理
-                cache.cleanup_daily(cfg.lock().map(|c| c.cache_days).unwrap_or(30));
+                cache.cleanup_daily(cache_days);
                 std::thread::sleep(CHECK_INTERVAL);
             }
         })

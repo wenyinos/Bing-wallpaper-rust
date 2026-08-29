@@ -90,6 +90,23 @@ fn main() -> eframe::Result<()> {
     let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
     let status = Arc::new(Mutex::new(Status::idle(lang)));
 
+    // Provider 注册表（P3：内置 Bing + 用户 Manifest，同 id 覆盖）
+    let providers = Arc::new(Mutex::new(
+        provider::manifest::load_all(&data_dir)
+            .into_iter()
+            .map(Arc::new)
+            .collect(),
+    ));
+
+    let env = Arc::new(app::UpdateEnv {
+        cfg,
+        data_dir: data_dir.clone(),
+        status: status.clone(),
+        last_fetch: Arc::new(Mutex::new(Vec::new())),
+        fetch_cursor: Arc::new(Mutex::new(0)),
+        providers,
+    });
+
     // 系统托盘（决策 #5）
     let (tray_tx, tray_rx) = std::sync::mpsc::channel();
     tray::spawn(lang, tray_tx);
@@ -111,10 +128,8 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             Ok(Box::new(App::new(
-                cfg,
-                data_dir,
+                env,
                 rt_handle,
-                status,
                 tray_rx,
                 tray_tx,
                 cc.egui_ctx.clone(),

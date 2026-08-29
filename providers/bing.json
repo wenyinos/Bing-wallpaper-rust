@@ -1,0 +1,10 @@
+{
+  "id": "bing",
+  "version": "2026.08.29",
+  "name": "Bing",
+  "type": "bing",
+  "endpoint": "https://cn.bing.com",
+  "params": {
+    "mkt": "zh-CN"
+  }
+}

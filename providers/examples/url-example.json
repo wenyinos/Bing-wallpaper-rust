@@ -1,0 +1,7 @@
+{
+  "id": "example-url",
+  "version": "1",
+  "name": "Example Daily URL",
+  "type": "url",
+  "url": "https://example.com/today.jpg"
+}

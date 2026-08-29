@@ -1,0 +1,19 @@
+{
+  "id": "example-json",
+  "version": "1",
+  "name": "Example JSON API",
+  "type": "json",
+  "endpoint": "https://example.com/api/wallpaper",
+  "params": {
+    "limit": "8"
+  },
+  "itemsPointer": "/data",
+  "mapping": {
+    "id": "/id",
+    "title": "/title",
+    "imageUrl": "/url",
+    "thumbnailUrl": "/thumbnail",
+    "copyright": "/copyright",
+    "publishedAt": "/published_at"
+  }
+}
