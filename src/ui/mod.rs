@@ -121,7 +121,6 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
     let mut ui = AppUi {
         env,
         rx,
-        lang,
         state: RefCell::new(UiState {
             page: Page::Home,
             lang: Cell::new(lang),
