@@ -200,6 +200,9 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
         .expect("创建定时器失败");
 
     let ui_ev = Rc::new(ui);
+    // 启动首次更新（缓存命中零下载）；定时器须在闭包捕获前启动
+    spawn_update(&ui_ev.env, lang);
+    ui_ev.timer.start();
     nwg::full_bind_event_handler(&ui_ev.window.handle, move |evt, data, handle| {
         use nwg::Event::*;
         match evt {
@@ -227,7 +230,6 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
             _ => {}
         }
     });
-    ui_ev.timer.start();
 
     // 进入消息循环（托盘常驻；退出仅经托盘"退出"）
     info!("UI 已就绪（纯软件渲染，Win32 控件）");
