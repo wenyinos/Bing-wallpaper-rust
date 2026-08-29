@@ -84,6 +84,8 @@ impl App {
         events_rx: std::sync::mpsc::Receiver<TrayAction>,
         ctx: egui::Context,
     ) -> Self {
+        // 中文界面必须先挂上 CJK 字体（egui 内置字体不含 CJK 字形）
+        crate::ui_font::apply(&ctx);
         let lang = Lang::parse(
             &env.cfg
                 .lock()

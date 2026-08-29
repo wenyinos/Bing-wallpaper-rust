@@ -14,6 +14,7 @@ mod scheduler;
 mod system;
 mod thumbs;
 mod tray;
+mod ui_font;
 mod wallpaper;
 
 use std::sync::{Arc, Mutex};
@@ -127,21 +128,38 @@ fn main() -> eframe::Result<()> {
     // 开机自启动带 --minimized：主窗口隐藏，仅托盘驻留（方案 §15/§30）
     let minimized = std::env::args().any(|arg| arg == "--minimized");
 
+    // 渲染稳定性硬化：VM / 远程桌面 / 老驱动下，MSAA、depth/stencil 缓冲与
+    // 垂直同步是黑屏花屏三大根因；egui 自带 feathering 抗锯齿不依赖它们。
+    // 注意不用 HardwareAcceleration::Off——WGL 软件像素格式只有 OpenGL 1.1，
+    // glow 无法工作，反而导致初始化失败。
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("BingWallpaper-Rust")
             .with_inner_size([680.0, 480.0])
             .with_icon(runtime_icon())
             .with_visible(!minimized),
+        renderer: eframe::Renderer::Glow,
+        multisampling: 0,
+        depth_buffer: 0,
+        stencil_buffer: 0,
+        vsync: false,
         ..Default::default()
     };
 
-    eframe::run_native(
+    if let Err(err) = eframe::run_native(
         "BingWallpaper-Rust",
         options,
         Box::new(move |cc| {
             // eframe 0.27 的 app_creator 返回 Box<dyn App>（0.28 起才是 Result）
             Box::new(App::new(env, rt_handle, tray_rx, cc.egui_ctx.clone())) as Box<dyn eframe::App>
         }),
-    )
+    ) {
+        // 常见原因：虚拟机 SVGA / 远程桌面（GDI Generic 仅 GL 1.1）/ 老显卡驱动
+        let msg = format!("界面初始化失败（当前环境可能不支持 OpenGL 2.0+）: {err}");
+        error!("{msg}");
+        eprintln!("{msg}");
+        eprintln!("提示：虚拟机请启用 3D 加速，远程桌面建议本地登录后使用。");
+        std::process::exit(1);
+    }
+    Ok(())
 }
