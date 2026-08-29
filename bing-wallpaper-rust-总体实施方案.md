@@ -1640,7 +1640,7 @@ Bing
 | 15 | Win7 测试 | Win7 VM/真机已具备，第 28 节测试矩阵完整执行；P0 重点实测 rustls+ring HTTPS 握手 |
 | 16 | 唤起窗口 | 单实例唤起已有窗口所需跨进程通信（命名管道/自定义消息）MVP 不做，留待后续 |
 
-P0 待落地事项（P0–P4 已全部实现，2026-08-29）：
+P0 待落地事项（P0–P4 已全部实现，2026-08-29；CI 构建全绿，v0.1.0 已发布）：
 
 ```text
 ✓ git init + .gitignore
@@ -1648,7 +1648,25 @@ P0 待落地事项（P0–P4 已全部实现，2026-08-29）：
 ✓ Cargo.toml 初版（features 按决策 #2/#3/#4/#5 配置）
 ✓ rust-toolchain.toml（1.77.2 + rustfmt + clippy）
 ✓ GitHub Actions 构建工作流（fmt 检查 + windows/MSVC 发布构建）
-□ 编译通过（等待首次 push 触发 CI）+ Win7 VM 实测 rustls+ring HTTPS 握手
+✓ assets/icon.ico 应用图标（四尺寸；winresource 嵌入 exe 资源）
+✓ GitHub Actions 构建全绿（MSVC，产物 PE32+/6.00 即 Win7 子系统版本）
+✓ v0.1.0 Release 已发布
+□ Win7 VM 实测：rustls+ring HTTPS 握手、托盘、壁纸设置、DPI
+```
+
+工具链兼容性记录（2026-08-29 CI 修复循环沉淀，钉子见 Cargo.toml）：
+
+```text
+2025-09 以后发布的下列传递依赖新版要求 edition2024 / rustc ≥1.81，
+与 1.77.2 不兼容，已用 "=版本" 钉死（升级 Rust 工具链前勿动）：
+  idna_adapter=1.2.0  home=0.5.9  indexmap=2.10.0  time=0.3.36
+  litemap=0.7.4  zerofrom=0.1.5  jobserver=0.1.32
+  unicode-segmentation=1.12.0  winresource=0.1.17(构建依赖)
+  windows crate 取 0.61（0.62 族要求 rustc 1.82）
+  ed25519 验签改用 ring（复用 rustls 依赖树，不再引 ed25519-dalek）
+本机验证手段：linux host `cargo check --locked` + `cargo fetch --locked`
+（跨平台依赖超集可提前暴露绝大多数工具链兼容问题；windows-only API 用
+registry 源码 grep 真实签名核对）
 ```
 
 P1–P4 实施记录（2026-08-29，均已通过本机 rustfmt 语法验证 + 依赖锁定）：
