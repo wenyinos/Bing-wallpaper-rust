@@ -187,7 +187,7 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
         let hdc = windows_sys::Win32::Graphics::Gdi::GetDC(0);
         let dpi = windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(
             hdc,
-            windows_sys::Win32::Graphics::Gdi::LOGPIXELSX,
+            windows_sys::Win32::Graphics::Gdi::LOGPIXELSX as i32,
         );
         windows_sys::Win32::Graphics::Gdi::ReleaseDC(0, hdc);
         dpi
