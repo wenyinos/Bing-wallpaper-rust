@@ -21,6 +21,8 @@ pub struct Config {
     pub auto_update: bool,
     /// 决策 #11：开机启动（改动时同步写注册表）
     pub startup: bool,
+    /// 7 天内壁纸自动轮换间隔（分钟，0 = 关闭）
+    pub rotate_minutes: u32,
     pub cache_days: u32,
     /// fill | fit | stretch | center | span
     pub fit_mode: String,
@@ -40,6 +42,7 @@ impl Default for Config {
             market: "zh-CN".into(),
             auto_update: true,
             startup: false,
+            rotate_minutes: 60,
             cache_days: 30,
             fit_mode: "fill".into(),
             language: "zh".into(),

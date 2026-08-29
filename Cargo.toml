@@ -7,12 +7,6 @@ license = "GPL-3.0"
 description = "轻量级 Rust 壁纸客户端 + 可插拔 Wallpaper Provider 框架（Windows 7+）"
 
 [dependencies]
-# GUI（决策 #4：仅 glow 后端，Win7 显卡驱动原生支持 OpenGL 2.0+；禁用 wgpu）
-eframe = { version = "0.27.2", default-features = false, features = [
-    "glow",
-    "default_fonts",
-] }
-
 # HTTP（决策 #2/#3：reqwest + tokio 异步，TLS 用 rustls + ring，
 # 不引入 native-tls/schannel；`=0.11` 系列的 rustls-tls 即 ring 实现）
 reqwest = { version = "=0.11.27", default-features = false, features = [
@@ -64,6 +58,8 @@ windows-sys = { version = "0.52.0", features = [
 ] }
 # 系统托盘（决策 #5）；其 windows crate 依赖树随动
 tray-icon = "0.14"
+# 纯软件渲染 UI（v0.3：Win32 原生控件 + GDI，零 GPU 依赖，替换 egui/glow）
+native-windows-gui = "1.0.13"
 # P2 多显示器/Win10+ 壁纸接口 IDesktopWallpaper（Win7 回退 SystemParametersInfoW）
 windows = { version = "0.61", features = ["Win32_UI_Shell", "Win32_System_Com"] }
 
