@@ -47,6 +47,7 @@ indexmap = "=2.10.0"
 time = "=0.3.36"
 litemap = "=0.7.4"            # icu 1.x 树
 jobserver = "=0.1.32"       # cc 构建链（windows 侧 getrandom 0.4 edition2024）
+unicode-segmentation = "=1.12.0"  # egui 文本链（1.13.3 要求 rustc 1.85）
 zerofrom = "=0.1.5"          # icu 1.x 树
 # linux-only 链钉子（CI 构建目标为 Windows，不编译；仅保证本机 cargo check 可运行）
 [target.'cfg(not(windows))'.dependencies]
