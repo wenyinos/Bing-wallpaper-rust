@@ -661,7 +661,7 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.home_frame)
         .position((10, 10))
         .size((320, 180))
-        .background_color([240, 240, 240])
+        .background_color(Some([240, 240, 240]))
         .build(&mut ui.home_preview)
         .unwrap();
     nwg::Label::builder()
@@ -692,7 +692,6 @@ fn build_children(ui: &mut AppUi) {
         .parent(&ui.home_frame)
         .position((504, 128))
         .size((150, 32))
-        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.next_wallpaper)
         .font(Some(f))
         .build(&mut ui.home_next_btn)
@@ -723,7 +722,7 @@ fn build_children(ui: &mut AppUi) {
         .position((344, 10))
         .size((336, 190))
         .flags(nwg::LabelFlags::VISIBLE)
-        .background_color([240, 240, 240])
+        .background_color(Some([240, 240, 240]))
         .build(&mut ui.history_preview)
         .unwrap();
     nwg::Label::builder()
