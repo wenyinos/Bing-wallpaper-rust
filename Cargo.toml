@@ -63,7 +63,7 @@ windows-sys = { version = "0.52.0", features = [
 # 系统托盘（决策 #5）；其 windows crate 依赖树随动
 tray-icon = "0.14"
 # P2 多显示器/Win10+ 壁纸接口 IDesktopWallpaper（Win7 回退 SystemParametersInfoW）
-windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_System_Com"] }
+windows = { version = "0.61", features = ["Win32_UI_Shell", "Win32_System_Com"] }
 
 [profile.release]
 opt-level = "z"      # 小体积优先（壁纸客户端为 IO 密集，性能无碍）
