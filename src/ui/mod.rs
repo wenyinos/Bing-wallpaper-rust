@@ -3,7 +3,7 @@
 //! 单线程事件模型：控件事件、`Notice`/`Timer` 全在 dispatch 线程处理；
 //! 后台任务通过 `UpdateEnv.ui_dirty` 原子标志通知刷新（100ms 定时器轮询）。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,7 @@ enum Page {
 /// 事件闭包内需要可变访问的状态（Rc<AppUi> 只能提供共享借用）
 struct UiState {
     page: Page,
+    lang: Cell<Lang>,
     last_status: String,
     history_entries: Vec<CacheEntry>,
     home_bitmap: Option<Rc<nwg::Bitmap>>,
@@ -83,6 +84,7 @@ pub struct AppUi {
     s_repo_input: nwg::TextInput,
     s_pubkey_label: nwg::Label,
     s_pubkey_input: nwg::TextInput,
+    s_repo_hint: nwg::Label,
     s_check_btn: nwg::Button,
     s_provider_msg: nwg::Label,
 
@@ -91,7 +93,6 @@ pub struct AppUi {
 
     env: Arc<UpdateEnv>,
     rx: std::sync::mpsc::Receiver<TrayAction>,
-    lang: Lang,
     state: RefCell<UiState>,
 }
 
@@ -122,6 +123,7 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
         lang,
         state: RefCell::new(UiState {
             page: Page::Home,
+            lang: Cell::new(lang),
             last_status: String::new(),
             history_entries: Vec::new(),
             home_bitmap: None,
@@ -170,6 +172,7 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
         s_repo_input: Default::default(),
         s_pubkey_label: Default::default(),
         s_pubkey_input: Default::default(),
+        s_repo_hint: Default::default(),
         s_check_btn: Default::default(),
         s_provider_msg: Default::default(),
         about_frame: Default::default(),
@@ -238,8 +241,12 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
 }
 
 impl AppUi {
+    fn lang(&self) -> Lang {
+        self.state.borrow().lang.get()
+    }
+
     fn t(&self) -> &'static crate::i18n::Strings {
-        crate::i18n::table(self.lang)
+        crate::i18n::table(self.lang())
     }
 
     fn on_button_click(self: &Rc<Self>, handle: &nwg::ControlHandle) {
@@ -252,9 +259,9 @@ impl AppUi {
         } else if handle == &self.tab_about.handle {
             self.show_page(Page::About);
         } else if handle == &self.home_update_btn.handle {
-            spawn_update(&self.env, self.lang);
+            spawn_update(&self.env, self.lang());
         } else if handle == &self.home_next_btn.handle {
-            spawn_next(&self.env, self.lang);
+            spawn_next(&self.env, self.lang());
         } else if handle == &self.history_refresh_btn.handle {
             self.reload_history();
         } else if handle == &self.history_set_btn.handle {
@@ -264,7 +271,7 @@ impl AppUi {
         } else if handle == &self.history_del_btn.handle {
             self.delete_history_selection();
         } else if handle == &self.s_check_btn.handle {
-            spawn_provider_check(&self.env, self.lang);
+            spawn_provider_check(&self.env, self.lang());
         } else if handle == &self.s_auto_cb.handle {
             if let Ok(mut cfg) = self.env.cfg.lock() {
                 cfg.auto_update = self.s_auto_cb.check_state() == nwg::CheckBoxState::Checked;
@@ -309,6 +316,11 @@ impl AppUi {
         } else if handle == &self.s_lang_combo.handle {
             if let Some(i) = self.s_lang_combo.selection() {
                 cfg.language = if i == 1 { "en" } else { "zh" }.into();
+                self.state
+                    .borrow()
+                    .lang
+                    .set(if i == 1 { Lang::En } else { Lang::Zh });
+                self.apply_language();
             }
         }
         save_cfg(&mut cfg, &self.env.data_dir);
@@ -469,7 +481,7 @@ impl AppUi {
             .map(|c| c.fit_mode.clone())
             .unwrap_or_else(|_| "fill".into());
         let env = Arc::clone(&self.env);
-        let lang = self.lang;
+        let lang = self.lang();
         let title = entry
             .title
             .clone()
@@ -525,8 +537,8 @@ impl AppUi {
     fn handle_tray_action(&self, action: TrayAction) {
         match action {
             TrayAction::Open => self.window.set_visible(true),
-            TrayAction::UpdateNow => spawn_update(&self.env, self.lang),
-            TrayAction::Next => spawn_next(&self.env, self.lang),
+            TrayAction::UpdateNow => spawn_update(&self.env, self.lang()),
+            TrayAction::Next => spawn_next(&self.env, self.lang()),
             TrayAction::History => {
                 self.show_page(Page::History);
                 self.window.set_visible(true);
@@ -554,14 +566,49 @@ impl AppUi {
         }
     }
 
+    /// 语言切换后刷新全部界面文案（页签/按钮/标签/关于），并重建语言相关下拉项
+    fn apply_language(&self) {
+        let t = self.t();
+        self.tab_home.set_text(t.tab_home);
+        self.tab_history.set_text(t.tab_history);
+        self.tab_settings.set_text(t.tab_settings);
+        self.tab_about.set_text(t.tab_about);
+        self.home_update_btn.set_text(t.update_now);
+        self.home_next_btn.set_text(t.next_wallpaper);
+        self.history_set_btn.set_text(t.history_set);
+        self.history_open_btn.set_text(t.history_open_location);
+        self.history_del_btn.set_text(t.history_delete);
+        self.history_refresh_btn.set_text(t.history_refresh);
+        self.s_provider_label.set_text(t.provider_label);
+        self.s_preset_label.set_text(t.preset_label);
+        self.s_fit_label.set_text(t.fit_mode_label);
+        self.s_lang_label.set_text(t.language_label);
+        self.s_auto_cb.set_text(t.auto_update_label);
+        self.s_startup_cb.set_text(t.autostart_label);
+        self.s_cache_label.set_text(t.cache_days_label);
+        self.s_rotate_label.set_text(t.rotate_label);
+        self.s_repo_label.set_text(t.provider_repo_label);
+        self.s_pubkey_label.set_text(t.provider_public_key_label);
+        self.s_check_btn.set_text(t.provider_check_update);
+        self.s_repo_hint.set_text(t.provider_repo_hint);
+        self.about_label.set_text(t.about_text);
+        // 强制刷新状态区文本（清空缓存触发 changed）
+        self.state.borrow_mut().last_status.clear();
+        self.refresh_status();
+        let page = self.state.borrow().page;
+        if page == Page::Settings {
+            self.sync_settings_controls();
+        }
+    }
+
     fn sync_settings_controls(&self) {
         let Ok(cfg) = self.env.cfg.lock() else { return };
         // ComboBox 无 clear 方法，按现有条数逐个移除
         for i in (0..self.s_provider_combo.len()).rev() {
             self.s_provider_combo.remove(i);
         }
-        for (_, label) in provider_entries(&self.env) {
-            self.s_provider_combo.push(label);
+        for item in &entries {
+            self.s_provider_combo.push(item.clone());
         }
         let ids = provider_ids(&self.env);
         let cur = ids
@@ -569,14 +616,26 @@ impl AppUi {
             .position(|id| *id == cfg.provider)
             .or(if ids.is_empty() { None } else { Some(0) });
         self.s_provider_combo.set_selection(cur);
+        rebuild(&self.s_preset_combo, &[t.preset_china, t.preset_global]);
         self.s_preset_combo
             .set_selection(Some(if cfg.bing_preset == "global" { 1 } else { 0 }));
+        rebuild(
+            &self.s_fit_combo,
+            &[
+                t.fit_fill,
+                t.fit_fit,
+                t.fit_stretch,
+                t.fit_center,
+                t.fit_span,
+            ],
+        );
         self.s_fit_combo.set_selection(Some(
             ["fill", "fit", "stretch", "center", "span"]
                 .iter()
                 .position(|f| *f == cfg.fit_mode)
                 .unwrap_or(0),
         ));
+        rebuild(&self.s_lang_combo, &["中文", "English"]);
         self.s_lang_combo
             .set_selection(Some(if cfg.language == "en" { 1 } else { 0 }));
         self.s_auto_cb.set_check_state(if cfg.auto_update {
@@ -901,6 +960,16 @@ fn build_children(ui: &mut AppUi) {
         .size((400, 24))
         .font(Some(f))
         .build(&mut ui.s_pubkey_input)
+        .unwrap();
+    y += 30;
+    nwg::Label::builder()
+        .parent(&ui.settings_frame)
+        .position((264, y))
+        .size((400, 22))
+        .text(t.provider_repo_hint)
+        .flags(nwg::LabelFlags::VISIBLE)
+        .font(Some(f))
+        .build(&mut ui.s_repo_hint)
         .unwrap();
     y += 40;
     nwg::Button::builder()
