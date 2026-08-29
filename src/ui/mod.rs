@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use native_windows_gui as nwg;
 use tracing::{error, info};
 
 use crate::app::{spawn_next, spawn_provider_check, spawn_update, UpdateEnv};
