@@ -1,0 +1,13 @@
+# Rust 构建产物
+/target/
+
+# 运行日志（正式版由程序限制大小，不入库）
+/logs/
+*.log
+
+# 编辑器/系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
