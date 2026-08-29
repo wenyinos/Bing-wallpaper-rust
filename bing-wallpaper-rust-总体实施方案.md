@@ -104,6 +104,11 @@ Cargo.lock
 
 ## 3.2 GUI
 
+> **v0.3 变更（2026-08-29）**：egui + eframe + glow 方案在 Windows 实测中渲染出错，
+> 且 Win7 约束下无软件渲染出路（系统软件 OpenGL 仅 1.1，wgpu 需 DX12）。
+> 决策改为 **native-windows-gui：Win32 原生控件 + GDI，纯软件渲染、零 GPU 依赖**，
+> 同时更好地满足"避免重型运行时依赖、Win7 兼容、小体积"目标。以下为历史记录。
+
 推荐：
 
 ```text
@@ -1461,7 +1466,7 @@ Architecture:
 Provider + Core
 
 Rendering:
-eframe glow 后端（OpenGL 2.0+），禁用 wgpu，Win7 VM 实测验证
+Win32 GDI（native-windows-gui 原生控件，纯软件渲染，零 GPU 依赖）
 ```
 
 ---
@@ -1626,7 +1631,7 @@ Bing
 | 1 | 构建环境 | 单轨（2026-08-29 修订）：编译全部由 GitHub Actions（windows runner + MSVC）承担；本机 Fedora 仅保留 1.77.2 工具链做 cargo fmt 语法检查与 Cargo.lock 生成，不安装 mingw-w64/任何 Windows target |
 | 2 | 网络栈 | reqwest + tokio 异步；WallpaperProvider::fetch 为 async 签名 |
 | 3 | TLS 后端 | rustls + 显式 ring provider（不用 aws-lc-rs，不用 native-tls/schannel） |
-| 4 | 渲染后端 | eframe 0.27~0.28 + glow（OpenGL 2.0+），Cargo features 禁用 wgpu |
+| 4 | 渲染后端 | ~~eframe 0.27~0.28 + glow~~（v0.3 已废弃，Win7 环境实测渲染出错，见决策 #17） |
 | 5 | 系统托盘 | tray-icon crate（接受其 windows crate 依赖树），不手写 Shell_NotifyIconW |
 | 6 | 壁纸适配 | MVP 用系统注册表 WallpaperStyle（默认 Fill）；程序级 crop/resize 推至 P2 |
 | 7 | 缓存索引 | JSON 索引文件（serde_json），不引入 SQLite；cache/database.rs 更名 index.rs |
@@ -1639,6 +1644,25 @@ Bing
 | 14 | UI 语言 | 中英双语 i18n：自定义字符串表（zh/en），按系统 locale / 配置选择，不引入 fluent |
 | 15 | Win7 测试 | Win7 VM/真机已具备，第 28 节测试矩阵完整执行；P0 重点实测 rustls+ring HTTPS 握手 |
 | 16 | 唤起窗口 | 单实例唤起已有窗口所需跨进程通信（命名管道/自定义消息）MVP 不做，留待后续 |
+
+### v0.3 决策补充（2026-08-29，渲染栈更换）
+
+| # | 决策项 | 结论 |
+|---|--------|------|
+| 17 | 渲染栈 | 废弃 egui/eframe/glow（Windows 实测渲染出错，Win7 下无软件渲染出路），改用 **native-windows-gui 1.0.13**：Win32 原生控件 + GDI，纯软件渲染零 GPU 依赖；glow 硬化尝试（禁 MSAA/depth/stencil/vsync）随 egui 一并废弃 |
+| 18 | 控制台窗口 | release 构建声明 `windows_subsystem = "windows"`（无 cmd 黑窗）；debug 构建保留控制台；日志全走 `%LOCALAPPDATA%\BingWallpaper-Rust\logs\app.log` |
+| 19 | 壁纸轮换 | 7 天内壁纸自动轮换：`rotate_minutes` 配置（0 = 关闭，默认 60 分钟），调度器按间隔轮换最近 7 天壁纸，与手动"下一张"共用即时生效链路 |
+| 20 | 平台范围 | 明确纯 Windows 项目，移除全部跨平台兼容层（非 Windows stub/门控），编译验证以 GitHub Actions 为准 |
+
+v0.3 实施记录：
+
+```text
+✓ UI 层重写为 nwg（主页预览/历史网格/设置/关于四页 + 托盘事件 + 关窗进托盘）
+✓ egui/eframe/winit/glutin/glow 依赖树全部移除（lock 显著瘦身）
+✓ 字体为系统微软雅黑（Win32 控件直接 GDI 渲染，无方框问题）
+□ nwg UI 层 CI 编译验证 + Windows 实机运行确认
+□ v0.3.0 发布（tag 自动挂 Release）
+```
 
 P0 待落地事项（P0–P4 已全部实现，2026-08-29；CI 构建全绿，v0.1.0 已发布）：
 

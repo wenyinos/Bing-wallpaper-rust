@@ -6,7 +6,7 @@
 
 ## 技术栈
 
-Rust 1.77.2 + eframe/egui（glow 后端）+ reqwest（rustls + ring）+ tokio + windows-sys。
+Rust 1.77.2 + **native-windows-gui**（Win32 原生控件，纯软件渲染零 GPU 依赖）+ reqwest（rustls + ring）+ tokio + windows-sys + tray-icon。
 
 ## 开发流程（2026-08-29 决策：构建单轨）
 
@@ -15,7 +15,9 @@ Rust 1.77.2 + eframe/egui（glow 后端）+ reqwest（rustls + ring）+ tokio + 
 - 不要在本机安装 mingw-w64 或任何 Windows target。
 - 依赖版本必须满足 MSRV ≤ 1.77.2；`Cargo.lock` 提交入库，禁止常规 `cargo update`。
 
-## 当前状态（P0–P4 已实现，待 Windows 实测）
+## 当前状态（v0.3 开发中；v0.2.0 已发布）
+
+**v0.3 变更**：界面渲染从 egui/glow 改为 **native-windows-gui（Win32 原生控件 + GDI 纯软件渲染）**——彻底解决 Windows 下渲染出错；release 构建无 cmd 黑窗；新增 7 天内壁纸自动轮换（设置页可配间隔）；明确纯 Windows 项目（移除跨平台兼容层）。
 
 - [x] 项目脚手架 + CI 构建工作流（P0）
 - [x] Bing Provider（HPImageArchive，国内/国际双预设，默认国内）
