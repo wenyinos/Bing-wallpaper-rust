@@ -5,7 +5,6 @@
 
 use std::sync::mpsc::Sender;
 
-#[cfg(windows)]
 pub fn spawn(lang: crate::i18n::Lang, tx: Sender<TrayAction>) {
     std::thread::Builder::new()
         .name("tray".into())
@@ -16,9 +15,6 @@ pub fn spawn(lang: crate::i18n::Lang, tx: Sender<TrayAction>) {
         })
         .expect("启动托盘线程失败");
 }
-
-#[cfg(not(windows))]
-pub fn spawn(_lang: crate::i18n::Lang, _tx: Sender<TrayAction>) {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrayAction {
@@ -33,7 +29,6 @@ pub enum TrayAction {
     ReloadProviders,
 }
 
-#[cfg(windows)]
 fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
 
@@ -103,8 +98,7 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
     }
 }
 
-/// 无图标资源时的占位图标：运行时生成纯色 RGBA（真实 icon.ico 后续替换）
-#[cfg(windows)]
+/// 无图标资源时的占位图标：运行时生成纯色 RGBA（真实 icon.ico 加载失败回退）
 fn solid_icon(
     width: u32,
     height: u32,

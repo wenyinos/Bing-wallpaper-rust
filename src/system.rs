@@ -4,12 +4,10 @@
 //! 门控的目的是让本机 linux `cargo check` 也能验证其余全部跨平台代码）。
 
 /// UTF-8 -> UTF-16（含 trailing NUL），供 Win32 宽字符接口使用
-#[cfg(windows)]
 pub fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-#[cfg(windows)]
 mod imp {
     use super::to_wide;
     use windows_sys::Win32::Foundation::{
@@ -46,22 +44,6 @@ mod imp {
             MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONWARNING | MB_OK);
         }
     }
-}
-
-#[cfg(not(windows))]
-mod imp {
-    #[derive(Debug, thiserror::Error)]
-    pub enum SystemError {
-        #[error("单实例检测在当前平台不可用")]
-        #[allow(dead_code)]
-        Unsupported,
-    }
-
-    pub fn acquire_single_instance(_name: &str) -> Result<bool, SystemError> {
-        Ok(true)
-    }
-
-    pub fn warn_already_running() {}
 }
 
 pub use imp::*;

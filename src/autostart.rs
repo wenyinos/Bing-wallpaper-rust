@@ -1,7 +1,5 @@
 //! 开机自启动（方案 §30）：HKCU\...\Run 注册表值，无需管理员权限，Win7 兼容。
-//! 非 Windows 平台为占位实现（CI 仅构建 Windows 目标）。
 
-#[cfg(windows)]
 mod imp {
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::System::Registry::{
@@ -80,19 +78,6 @@ mod imp {
         })();
         unsafe { RegCloseKey(hkey) };
         result
-    }
-}
-
-#[cfg(not(windows))]
-mod imp {
-    #[derive(Debug, thiserror::Error)]
-    pub enum AutostartError {
-        #[error("开机自启动在当前平台不可用")]
-        Unsupported,
-    }
-
-    pub fn set_enabled(_enable: bool) -> Result<(), AutostartError> {
-        Err(AutostartError::Unsupported)
     }
 }
 

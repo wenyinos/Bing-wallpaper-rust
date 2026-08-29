@@ -2,10 +2,8 @@
 //!
 //! MVP 采用系统注册表 WallpaperStyle（方案 §13 决策：程序级 crop/resize 推至 P2）。
 
-#[cfg(windows)]
 pub mod desktop_wallpaper;
 
-#[cfg(windows)]
 pub mod windows;
 
 use thiserror::Error;
@@ -46,7 +44,6 @@ impl FitMode {
 
 /// 设置壁纸。`fit` 为配置中的字符串（"fill"/"fit"/"stretch"/"center"/"span"）。
 pub fn set_wallpaper(path: &std::path::Path, fit: &str) -> Result<(), WallpaperError> {
-    #[cfg(windows)]
     {
         let mode = FitMode::parse(fit);
         // Win10+ 优先 IDesktopWallpaper（支持 Span、多显示器语义，方案 §14）
@@ -61,10 +58,5 @@ pub fn set_wallpaper(path: &std::path::Path, fit: &str) -> Result<(), WallpaperE
         }
         // 双路径都失败：重试一次 SPI 拿到具体错误码返回
         windows::set_via_systemparams(path, mode)
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (path, fit);
-        Err(WallpaperError::Api(0)) // 非 Windows 平台未实现（发布目标仅为 Windows）
     }
 }
