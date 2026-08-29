@@ -100,16 +100,18 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
     nwg::init().expect("Win32 UI 初始化失败");
 
     let t = crate::i18n::table(lang);
-    let font = nwg::Font::builder()
+    let mut font = nwg::Font::default();
+    nwg::Font::builder()
         .family("Microsoft YaHei")
         .size(18)
-        .build()
+        .build(&mut font)
         .expect("创建界面字体失败");
-    let font_bold = nwg::Font::builder()
+    let mut font_bold = nwg::Font::default();
+    nwg::Font::builder()
         .family("Microsoft YaHei")
         .size(22)
         .weight(700)
-        .build()
+        .build(&mut font_bold)
         .expect("创建粗体字体失败");
 
     let icon = nwg::Icon::from_bin(crate::icon::ICON_BYTES).unwrap_or_default();
@@ -192,7 +194,7 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
 
     // 100ms 轮询定时器：托盘事件 + 状态刷新
     nwg::Timer::builder()
-        .interval(std::time::Duration::from_millis(100))
+        .interval(100)
         .parent(&ui.window)
         .build(&mut ui.timer)
         .expect("创建定时器失败");
@@ -469,8 +471,12 @@ impl AppUi {
                     CacheManager::new(&env.data_dir).record_last_set(&provider, &wallpaper_id);
                     set_status(&env, false, format!("{}{title}", t.status_done_prefix));
                 }
-                Ok(Err(err)) | Err(err) => {
+                Ok(Err(err)) => {
                     error!("历史壁纸设置失败: {err}");
+                    set_status(&env, false, format!("{}{err}", t.status_failed_prefix));
+                }
+                Err(err) => {
+                    error!("壁纸任务异常: {err}");
                     set_status(&env, false, format!("{}{err}", t.status_failed_prefix));
                 }
             }
@@ -533,7 +539,10 @@ impl AppUi {
 
     fn sync_settings_controls(&self) {
         let Ok(cfg) = self.env.cfg.lock() else { return };
-        self.s_provider_combo.clear();
+        // ComboBox 无 clear 方法，按现有条数逐个移除
+        for i in (0..self.s_provider_combo.len()).rev() {
+            self.s_provider_combo.remove(i);
+        }
         for (_, label) in provider_entries(&self.env) {
             self.s_provider_combo.push(label);
         }
@@ -623,7 +632,7 @@ fn build_children(ui: &mut AppUi) {
     ] {
         nwg::Button::builder()
             .parent(&ui.window)
-            .pos((x, 8))
+            .position((x, 8))
             .size((96, 28))
             .text(text)
             .font(Some(f))
@@ -640,7 +649,7 @@ fn build_children(ui: &mut AppUi) {
     ] {
         nwg::Frame::builder()
             .parent(&ui.window)
-            .pos((8, 42))
+            .position((8, 42))
             .size((692, 470))
             .build(frame)
             .expect("创建页面容器失败");
@@ -650,30 +659,30 @@ fn build_children(ui: &mut AppUi) {
     // ---- 主页 ----
     nwg::ImageFrame::builder()
         .parent(&ui.home_frame)
-        .pos((10, 10))
+        .position((10, 10))
         .size((320, 180))
         .background_color([240, 240, 240])
         .build(&mut ui.home_preview)
         .unwrap();
     nwg::Label::builder()
         .parent(&ui.home_frame)
-        .pos((344, 16))
+        .position((344, 16))
         .size((336, 64))
         .text(t.status_ready)
-        .flags(nwg::LabelFlags::WRAP)
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(&ui.font_bold))
         .build(&mut ui.home_status)
         .unwrap();
     nwg::Label::builder()
         .parent(&ui.home_frame)
-        .pos((344, 88))
+        .position((344, 88))
         .size((336, 22))
         .font(Some(f))
         .build(&mut ui.home_last)
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.home_frame)
-        .pos((344, 128))
+        .position((344, 128))
         .size((150, 32))
         .text(t.update_now)
         .font(Some(f))
@@ -681,15 +690,16 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.home_frame)
-        .pos((504, 128))
+        .position((504, 128))
         .size((150, 32))
+        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.next_wallpaper)
         .font(Some(f))
         .build(&mut ui.home_next_btn)
         .unwrap();
     nwg::Label::builder()
         .parent(&ui.home_frame)
-        .pos((10, 432))
+        .position((10, 432))
         .size((668, 24))
         .text(format!(
             "{}: {}",
@@ -703,28 +713,29 @@ fn build_children(ui: &mut AppUi) {
     // ---- 历史 ----
     nwg::ListBox::builder()
         .parent(&ui.history_frame)
-        .pos((10, 10))
+        .position((10, 10))
         .size((320, 396))
         .font(Some(f))
         .build(&mut ui.history_list)
         .unwrap();
     nwg::ImageFrame::builder()
         .parent(&ui.history_frame)
-        .pos((344, 10))
+        .position((344, 10))
         .size((336, 190))
+        .flags(nwg::LabelFlags::VISIBLE)
         .background_color([240, 240, 240])
         .build(&mut ui.history_preview)
         .unwrap();
     nwg::Label::builder()
         .parent(&ui.history_frame)
-        .pos((344, 208))
+        .position((344, 208))
         .size((336, 22))
         .font(Some(f))
         .build(&mut ui.history_title)
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.history_frame)
-        .pos((344, 240))
+        .position((344, 240))
         .size((104, 30))
         .text(t.history_set)
         .font(Some(f))
@@ -732,7 +743,7 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.history_frame)
-        .pos((458, 240))
+        .position((458, 240))
         .size((104, 30))
         .text(t.history_open_location)
         .font(Some(f))
@@ -740,7 +751,7 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.history_frame)
-        .pos((572, 240))
+        .position((572, 240))
         .size((104, 30))
         .text(t.history_delete)
         .font(Some(f))
@@ -748,8 +759,9 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::Button::builder()
         .parent(&ui.history_frame)
-        .pos((10, 416))
+        .position((10, 416))
         .size((320, 30))
+        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.history_refresh)
         .font(Some(f))
         .build(&mut ui.history_refresh_btn)
@@ -761,7 +773,7 @@ fn build_children(ui: &mut AppUi) {
         ($label:expr, $text:expr, $combo:expr) => {{
             nwg::Label::builder()
                 .parent(&ui.settings_frame)
-                .pos((14, y + 2))
+                .position((14, y + 2))
                 .size((240, 24))
                 .text($text)
                 .font(Some(f))
@@ -769,7 +781,7 @@ fn build_children(ui: &mut AppUi) {
                 .unwrap();
             nwg::ComboBox::builder()
                 .parent(&ui.settings_frame)
-                .pos((264, y))
+                .position((264, y))
                 .size((400, 24))
                 .font(Some(f))
                 .build($combo)
@@ -784,7 +796,7 @@ fn build_children(ui: &mut AppUi) {
 
     nwg::CheckBox::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y))
+        .position((14, y))
         .size((650, 24))
         .text(t.auto_update_label)
         .font(Some(f))
@@ -793,8 +805,9 @@ fn build_children(ui: &mut AppUi) {
     y += 34;
     nwg::CheckBox::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y))
+        .position((14, y))
         .size((650, 24))
+        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.autostart_label)
         .font(Some(f))
         .build(&mut ui.s_startup_cb)
@@ -802,7 +815,7 @@ fn build_children(ui: &mut AppUi) {
     y += 34;
     nwg::Label::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y + 2))
+        .position((14, y + 2))
         .size((240, 24))
         .text(t.cache_days_label)
         .font(Some(f))
@@ -810,15 +823,16 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
-        .pos((264, y))
+        .position((264, y))
         .size((120, 24))
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_cache_input)
         .unwrap();
     y += 40;
     nwg::Label::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y + 2))
+        .position((14, y + 2))
         .size((240, 24))
         .text(t.rotate_label)
         .font(Some(f))
@@ -826,15 +840,16 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
-        .pos((264, y))
+        .position((264, y))
         .size((120, 24))
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_rotate_input)
         .unwrap();
     y += 40;
     nwg::Label::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y + 2))
+        .position((14, y + 2))
         .size((240, 24))
         .text(t.provider_repo_label)
         .font(Some(f))
@@ -842,15 +857,16 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
-        .pos((264, y))
+        .position((264, y))
         .size((400, 24))
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_repo_input)
         .unwrap();
     y += 38;
     nwg::Label::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y + 2))
+        .position((14, y + 2))
         .size((240, 24))
         .text(t.provider_public_key_label)
         .font(Some(f))
@@ -858,7 +874,7 @@ fn build_children(ui: &mut AppUi) {
         .unwrap();
     nwg::TextInput::builder()
         .parent(&ui.settings_frame)
-        .pos((264, y))
+        .position((264, y))
         .size((400, 24))
         .font(Some(f))
         .build(&mut ui.s_pubkey_input)
@@ -866,16 +882,18 @@ fn build_children(ui: &mut AppUi) {
     y += 40;
     nwg::Button::builder()
         .parent(&ui.settings_frame)
-        .pos((14, y))
+        .position((14, y))
         .size((220, 30))
+        .flags(nwg::LabelFlags::VISIBLE)
         .text(t.provider_check_update)
         .font(Some(f))
         .build(&mut ui.s_check_btn)
         .unwrap();
     nwg::Label::builder()
         .parent(&ui.settings_frame)
-        .pos((244, y + 6))
+        .position((244, y + 6))
         .size((420, 22))
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.s_provider_msg)
         .unwrap();
@@ -883,10 +901,10 @@ fn build_children(ui: &mut AppUi) {
     // ---- 关于 ----
     nwg::Label::builder()
         .parent(&ui.about_frame)
-        .pos((20, 24))
+        .position((20, 24))
         .size((652, 320))
         .text(t.about_text)
-        .flags(nwg::LabelFlags::WRAP)
+        .flags(nwg::LabelFlags::VISIBLE)
         .font(Some(f))
         .build(&mut ui.about_label)
         .unwrap();

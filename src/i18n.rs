@@ -72,6 +72,7 @@ pub struct Strings {
     pub history_open_location: &'static str,
     pub history_delete: &'static str,
     pub history_empty: &'static str,
+    pub history_refresh: &'static str,
     pub about_text: &'static str,
 }
 
@@ -124,6 +125,7 @@ const ZH: Strings = Strings {
     history_open_location: "打开文件位置",
     history_delete: "删除",
     history_empty: "暂无历史壁纸",
+    history_refresh: "刷新",
     about_text: "BingWallpaper-Rust —— 轻量级 Rust 壁纸客户端 + 可插拔 Provider 框架\n目标平台：Windows 7 SP1+ / x64\n许可证：GPL-3.0\n架构与决策详见项目《总体实施方案》",
 };
 
@@ -176,6 +178,7 @@ const EN: Strings = Strings {
     history_open_location: "Open file location",
     history_delete: "Delete",
     history_empty: "No wallpaper history yet",
+    history_refresh: "Refresh",
     about_text: "BingWallpaper-Rust - lightweight Rust wallpaper client with pluggable providers\nTarget: Windows 7 SP1+ / x64\nLicense: GPL-3.0\nSee the design document for architecture and decisions",
 };
 
