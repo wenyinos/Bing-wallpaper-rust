@@ -12,7 +12,7 @@ use std::time::Instant;
 use native_windows_gui as nwg;
 use tracing::{error, info};
 
-use crate::app::{spawn_next, spawn_provider_check, spawn_update, UpdateEnv};
+use crate::app::{spawn_fetch_recent, spawn_next, spawn_provider_check, spawn_update, UpdateEnv};
 use crate::cache::{CacheEntry, CacheManager};
 use crate::i18n::Lang;
 use crate::tray::TrayAction;
@@ -64,6 +64,7 @@ pub struct AppUi {
     history_open_btn: nwg::Button,
     history_del_btn: nwg::Button,
     history_refresh_btn: nwg::Button,
+    history_fetch_btn: nwg::Button,
 
     settings_frame: nwg::Frame,
     s_provider_label: nwg::Label,
@@ -153,6 +154,7 @@ pub fn run(env: Arc<UpdateEnv>, rx: std::sync::mpsc::Receiver<TrayAction>, lang:
         history_open_btn: Default::default(),
         history_del_btn: Default::default(),
         history_refresh_btn: Default::default(),
+        history_fetch_btn: Default::default(),
         settings_frame: Default::default(),
         s_provider_label: Default::default(),
         s_provider_combo: Default::default(),
@@ -264,6 +266,8 @@ impl AppUi {
             spawn_next(&self.env, self.lang());
         } else if handle == &self.history_refresh_btn.handle {
             self.reload_history();
+        } else if handle == &self.history_fetch_btn.handle {
+            spawn_fetch_recent(&self.env, self.lang());
         } else if handle == &self.history_set_btn.handle {
             self.apply_history_selection();
         } else if handle == &self.history_open_btn.handle {
@@ -563,6 +567,15 @@ impl AppUi {
                 }
                 self.sync_settings_controls();
             }
+            TrayAction::HistoryRefresh => {
+                let page = self.state.borrow().page;
+                if page == Page::History {
+                    self.reload_history();
+                } else {
+                    // 标记脏，下次进入历史页时自动重载
+                    self.state.borrow_mut().history_entries.clear();
+                }
+            }
         }
     }
 
@@ -579,6 +592,7 @@ impl AppUi {
         self.history_open_btn.set_text(t.history_open_location);
         self.history_del_btn.set_text(t.history_delete);
         self.history_refresh_btn.set_text(t.history_refresh);
+        self.history_fetch_btn.set_text(t.fetch_recent_btn);
         self.s_provider_label.set_text(t.provider_label);
         self.s_preset_label.set_text(t.preset_label);
         self.s_fit_label.set_text(t.fit_mode_label);
@@ -603,7 +617,20 @@ impl AppUi {
 
     fn sync_settings_controls(&self) {
         let Ok(cfg) = self.env.cfg.lock() else { return };
-        // ComboBox 无 clear 方法，按现有条数逐个移除
+        let t = self.t();
+        // ComboBox 无 clear 方法：rebuild 逐个移除后重建
+        let rebuild = |combo: &nwg::ComboBox<String>, items: &[&str]| {
+            for i in (0..combo.len()).rev() {
+                combo.remove(i);
+            }
+            for item in items {
+                combo.push((*item).to_string());
+            }
+        };
+        let entries: Vec<String> = provider_entries(&self.env)
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect();
         for i in (0..self.s_provider_combo.len()).rev() {
             self.s_provider_combo.remove(i);
         }
@@ -834,10 +861,18 @@ fn build_children(ui: &mut AppUi) {
     nwg::Button::builder()
         .parent(&ui.history_frame)
         .position((10, 416))
-        .size((320, 30))
+        .size((155, 30))
         .text(t.history_refresh)
         .font(Some(f))
         .build(&mut ui.history_refresh_btn)
+        .unwrap();
+    nwg::Button::builder()
+        .parent(&ui.history_frame)
+        .position((175, 416))
+        .size((155, 30))
+        .text(t.fetch_recent_btn)
+        .font(Some(f))
+        .build(&mut ui.history_fetch_btn)
         .unwrap();
 
     // ---- 设置 ----

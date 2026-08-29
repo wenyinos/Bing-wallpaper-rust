@@ -73,6 +73,9 @@ pub struct Strings {
     pub history_delete: &'static str,
     pub history_empty: &'static str,
     pub history_refresh: &'static str,
+    pub fetch_recent_btn: &'static str,
+    pub fetch_recent_doing: &'static str,
+    pub fetch_recent_done_prefix: &'static str,
     pub about_text: &'static str,
 }
 
@@ -126,7 +129,10 @@ const ZH: Strings = Strings {
     history_delete: "删除",
     history_empty: "暂无历史壁纸",
     history_refresh: "刷新",
-    about_text: "BingWallpaper-Rust —— 轻量级 Rust 壁纸客户端 + 可插拔 Provider 框架\n目标平台：Windows 7 SP1+ / x64\n许可证：GPL-3.0\n架构与决策详见项目《总体实施方案》",
+    fetch_recent_btn: "获取前 7 天",
+    fetch_recent_doing: "正在获取前 7 天壁纸",
+    fetch_recent_done_prefix: "前 7 天壁纸已就绪：",
+    about_text: "BingWallpaper-Rust —— 轻量级 Rust 壁纸客户端 + 可插拔 Provider 框架\n目标平台：Windows 7 SP1+ / x64\n\n开源仓库：https://github.com/wenyinos/Bing-wallpaper-rust\n版权所有 (C) 2026 wenyinos\n\n本程序基于 GPL-3.0 授权发布，不含任何担保；\n您可在遵循 GPL-3.0 条款的前提下自由使用、修改与再分发。",
 };
 
 const EN: Strings = Strings {
@@ -179,7 +185,10 @@ const EN: Strings = Strings {
     history_delete: "Delete",
     history_empty: "No wallpaper history yet",
     history_refresh: "Refresh",
-    about_text: "BingWallpaper-Rust - lightweight Rust wallpaper client with pluggable providers\nTarget: Windows 7 SP1+ / x64\nLicense: GPL-3.0\nSee the design document for architecture and decisions",
+    fetch_recent_btn: "Fetch last 7 days",
+    fetch_recent_doing: "Fetching last 7 days",
+    fetch_recent_done_prefix: "Last 7 days ready: ",
+    about_text: "BingWallpaper-Rust - lightweight Rust wallpaper client with pluggable providers\nTarget: Windows 7 SP1+ / x64\n\nRepository: https://github.com/wenyinos/Bing-wallpaper-rust\nCopyright (C) 2026 wenyinos\n\nThis program is licensed under GPL-3.0, with no warranty;\nyou may use, modify and redistribute it under the terms of GPL-3.0.",
 };
 
 pub fn table(lang: Lang) -> &'static Strings {

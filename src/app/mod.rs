@@ -257,6 +257,76 @@ async fn run_next(env: &Arc<UpdateEnv>) -> Result<(String, String), UpdateError>
     apply_wallpaper(&selected.manifest.id, &wp, http, &cache, &snapshot.fit_mode).await
 }
 
+/// "获取前 7 天"：批量下载最近 7 天壁纸入库（不改变当前壁纸）
+pub fn spawn_fetch_recent(env: &Arc<UpdateEnv>, lang: Lang) {
+    let env = env.clone();
+    let rt = env.rt.clone();
+    rt.spawn(fetch_recent_task(env, lang));
+}
+
+async fn fetch_recent_task(env: Arc<UpdateEnv>, lang: Lang) {
+    let t = crate::i18n::table(lang);
+    set_status(&env, true, t.fetch_recent_doing.into());
+    match run_fetch_recent(&env, lang).await {
+        Ok(n) => {
+            info!("前 7 天壁纸获取完成: {n} 张");
+            set_status(&env, false, format!("{}{n} 张", t.fetch_recent_done_prefix));
+        }
+        Err(err) => {
+            error!("前 7 天壁纸获取失败: {err}");
+            set_status(&env, false, format!("{}{err}", t.status_failed_prefix));
+        }
+    }
+    let _ = env.events_tx.send(TrayAction::HistoryRefresh);
+}
+
+async fn run_fetch_recent(env: &Arc<UpdateEnv>, lang: Lang) -> Result<usize, UpdateError> {
+    let snapshot = env
+        .cfg
+        .lock()
+        .map(|c| c.clone())
+        .map_err(|_| "配置状态异常")?;
+    let selected = {
+        let guard = env.providers.lock().map_err(|_| "状态异常")?;
+        select_provider(&guard, &snapshot.provider)
+    }?;
+    let http = http_client().await?;
+    let context = ProviderContext { http: http.clone() };
+    let wallpapers = selected.provider.fetch(&context).await?;
+    if let Ok(mut slot) = env.last_fetch.lock() {
+        *slot = wallpapers.clone();
+    }
+    // 7 天窗口
+    let window_start = CacheManager::today() - chrono::Duration::days(6);
+    let recent: Vec<Wallpaper> = wallpapers
+        .into_iter()
+        .filter(|wp| {
+            wp.published_at
+                .map(|d| d.date_naive() >= window_start)
+                .unwrap_or(false)
+        })
+        .collect();
+    let cache = CacheManager::new(&env.data_dir);
+    let mut n = 0;
+    let doing = crate::i18n::table(lang).fetch_recent_doing;
+    for (i, wp) in recent.iter().enumerate() {
+        set_status(env, true, format!("{doing}（{}/{}）", i + 1, recent.len()));
+        let dest = cache.path_for(&selected.manifest.id, &wp.id);
+        let bytes: u64 = if dest.exists() {
+            info!("缓存命中: {}", dest.display());
+            0
+        } else {
+            tokio::fs::create_dir_all(cache.dir().join(&selected.manifest.id)).await?;
+            Downloader { http: http.clone() }
+                .download_to_file(&wp.image_url, &dest)
+                .await?
+        };
+        cache.record_entry(&selected.manifest.id, wp, bytes);
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// P4：检查 Provider 在线更新（方案 §9 第二阶段）
 pub fn spawn_provider_check(env: &Arc<UpdateEnv>, lang: Lang) {
     let t = crate::i18n::table(lang);

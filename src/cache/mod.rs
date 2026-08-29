@@ -131,6 +131,28 @@ impl CacheManager {
         self.save_index(&index);
     }
 
+    /// 仅登记到索引（不动 last_set）；用于"获取前 7 天"批量入库
+    pub fn record_entry(&self, provider: &str, wp: &Wallpaper, bytes: u64) {
+        let mut index = self.load_index();
+        index
+            .entries
+            .retain(|e| !(e.provider == provider && e.wallpaper_id == wp.id));
+        index.entries.push(CacheEntry {
+            provider: provider.to_string(),
+            wallpaper_id: wp.id.clone(),
+            file: format!("{provider}/{id}.jpg", id = wp.id),
+            title: if wp.title.is_empty() {
+                None
+            } else {
+                Some(wp.title.clone())
+            },
+            date: wp.published_at.map(|d| d.date_naive()),
+            bytes,
+            added_at: Utc::now(),
+        });
+        self.save_index(&index);
+    }
+
     /// 按天数清理过期缓存（方案 §11：默认 30 天），返回删除数量
     pub fn cleanup(&self, days: u32) -> usize {
         let index = self.load_index();
