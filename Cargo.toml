@@ -1,0 +1,47 @@
+[package]
+name = "bing-wallpaper-rust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+license = "GPL-3.0"
+description = "轻量级 Rust 壁纸客户端 + 可插拔 Wallpaper Provider 框架（Windows 7+）"
+
+[dependencies]
+# GUI（决策 #4：仅 glow 后端，Win7 显卡驱动原生支持 OpenGL 2.0+；禁用 wgpu）
+eframe = { version = "0.27.2", default-features = false, features = [
+    "glow",
+    "default_fonts",
+] }
+
+# HTTP（决策 #2/#3：reqwest + tokio 异步，TLS 用 rustls + ring，
+# 不引入 native-tls/schannel；`=0.11` 系列的 rustls-tls 即 ring 实现）
+reqwest = { version = "=0.11.27", default-features = false, features = [
+    "rustls-tls",
+    "json",
+] }
+tokio = { version = "=1.38.2", features = ["rt-multi-thread", "macros", "time"] }
+
+# 数据与工具（全部满足 MSRV <= 1.77.2）
+serde = { version = "=1.0.203", features = ["derive"] }
+serde_json = "=1.0.117"
+chrono = { version = "0.4.38", features = ["serde"] }
+thiserror = "1.0.61"
+async-trait = "0.1.80"
+dirs = "5.0.1"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
+
+# Windows API（决策：windows-sys 而非 windows；P1 引入 tray-icon 时才增加 windows crate）
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52.0", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+opt-level = "z"      # 小体积优先（壁纸客户端为 IO 密集，性能无碍）
+lto = "thin"
+codegen-units = 1
+strip = true
