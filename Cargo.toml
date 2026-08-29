@@ -19,7 +19,7 @@ reqwest = { version = "=0.11.27", default-features = false, features = [
     "rustls-tls",
     "json",
 ] }
-tokio = { version = "=1.38.2", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "=1.38.2", features = ["rt-multi-thread", "macros", "time", "fs"] }
 
 # 数据与工具（全部满足 MSRV <= 1.77.2）
 serde = { version = "=1.0.203", features = ["derive"] }
@@ -35,10 +35,23 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png",
 # 日志文件（方案 §18，按天滚动）
 tracing-appender = "0.2"
 # P4：Provider 在线更新完整性校验（方案 §25：SHA-256 + 可选 ed25519 签名）
+# 两者均复用 rustls 已引入的 ring，不新增加密依赖树
 sha2 = "0.10"
-ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["fast", "signature"] }
+ring = "0.17"
 
-# Windows API（决策：windows-sys 而非 windows；P1 引入 tray-icon 时才增加 windows crate）
+# ---- MSRV / edition 钉子（1.77.2 兼容性；显式声明使任何 lock 重解析都强制满足，勿随意升级）----
+# 2025-09 后这些传递依赖的新 minor 版本要求 edition2024 / rustc 1.81+
+idna_adapter = "=1.2.0"     # url->idna 链（icu 1.x 而非 2.x）
+home = "=0.5.9"             # dirs 链
+indexmap = "=2.10.0"
+time = "=0.3.36"
+litemap = "=0.7.4"            # icu 1.x 树
+zerofrom = "=0.1.5"          # icu 1.x 树
+# linux-only 链钉子（CI 构建目标为 Windows，不编译；仅保证本机 cargo check 可运行）
+[target.'cfg(not(windows))'.dependencies]
+smithay-clipboard = "=0.7.1"
+wayland-scanner = "=0.31.10"  # quick-xml MSRV 链
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0", features = [
     "Win32_Foundation",
@@ -59,4 +72,4 @@ strip = true
 
 # Windows exe 资源嵌入（图标/版本信息）
 [build-dependencies]
-winresource = "0.1"
+winresource = "=0.1.17"

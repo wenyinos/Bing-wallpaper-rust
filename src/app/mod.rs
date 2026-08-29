@@ -5,7 +5,7 @@
 pub mod config;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -69,7 +69,6 @@ pub struct App {
     pub cache: CacheManager,
     pub lang: Lang,
     pub page: Page,
-    pub exit_requested: bool,
     pub events_rx: std::sync::mpsc::Receiver<TrayAction>,
     pub settings_hint: Option<(String, Instant)>,
     /// 历史页：条目快照 + 缩略图纹理缓存
@@ -105,7 +104,6 @@ impl App {
             rt,
             lang,
             page: Page::Home,
-            exit_requested: false,
             events_rx,
             settings_hint: None,
             history_entries: Vec::new(),
@@ -139,8 +137,9 @@ impl App {
             TrayAction::Settings => show(&mut self.page, Page::Settings, ctx),
             TrayAction::About => show(&mut self.page, Page::About, ctx),
             TrayAction::Quit => {
-                self.exit_requested = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                // 配置即改即存、缓存索引原子写，直接退出无状态丢失风险
+                info!("用户从托盘请求退出");
+                std::process::exit(0);
             }
             TrayAction::ReloadProviders => {
                 let loaded = crate::provider::manifest::load_all(&self.env.data_dir);
@@ -317,7 +316,11 @@ impl App {
                             if let Some(tex) = self.texture_for(ui.ctx(), entry) {
                                 ui.add(egui::Image::new(&tex).max_width(220.0));
                             } else {
-                                ui.add(egui::Placeholder::new(egui::vec2(220.0, 124.0), 0.25));
+                                // 无缩略图时占出等高空间，保持网格整齐
+                                ui.allocate_exact_size(
+                                    egui::vec2(220.0, 124.0),
+                                    egui::Sense::hover(),
+                                );
                             }
                             ui.label(
                                 entry
@@ -369,7 +372,7 @@ impl App {
         let source = self.cache.dir().join(&entry.file);
         let thumb = crate::thumbs::ensure_thumbnail(self.cache.dir(), &source, &entry.file)?;
         let img = image::open(&thumb).ok()?;
-        let (width, height) = img.dimensions();
+        let (width, height) = image::GenericImageView::dimensions(&img);
         let rgba = img.to_rgba8().into_raw();
         let color =
             egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
@@ -489,8 +492,16 @@ impl App {
                             t.preset_china
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut cfg.bing_preset, "china", t.preset_china);
-                            ui.selectable_value(&mut cfg.bing_preset, "global", t.preset_global);
+                            ui.selectable_value(
+                                &mut cfg.bing_preset,
+                                "china".to_string(),
+                                t.preset_china,
+                            );
+                            ui.selectable_value(
+                                &mut cfg.bing_preset,
+                                "global".to_string(),
+                                t.preset_global,
+                            );
                         });
                     ui.end_row();
 
@@ -554,7 +565,7 @@ impl App {
 
                     // 缓存保留天数（方案 §11）
                     ui.label(t.cache_days_label);
-                    ui.add(egui::DragValue::new(&mut cfg.cache_days).range(7..=365));
+                    ui.add(egui::DragValue::new(&mut cfg.cache_days).clamp_range(7..=365));
                     ui.end_row();
                 });
 
@@ -834,6 +845,14 @@ impl eframe::App for App {
             self.handle_tray_action(action, ctx);
         }
 
+        // 方案 §15：关闭窗口 = 进托盘。
+        // eframe 0.27 无 on_close_event，用 close_requested + CancelClose 拦截 X 关闭
+        let close_requested = ctx.input(|i| i.viewport().close_requested());
+        if close_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             self.draw_tabs(ui);
             match self.page {
@@ -846,10 +865,5 @@ impl eframe::App for App {
 
         // 托盘事件需要 UI 循环持续运转（隐藏窗口时保持低频重绘）
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
-    }
-
-    fn on_close_event(&mut self) -> bool {
-        // 方案 §15：关闭窗口 = 进托盘；仅托盘"退出"才真正退出
-        !self.exit_requested
     }
 }

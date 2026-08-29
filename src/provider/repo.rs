@@ -88,28 +88,18 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// ed25519 验签；payload 序列化方式必须与服务端一致（serde_json 紧凑格式）
+/// ed25519 验签（ring，复用 rustls 依赖树）；payload 序列化方式必须与服务端一致（serde_json 紧凑格式）
 fn verify_signature(
     public_key_hex: &str,
     payload: &RepoPayload,
     signature_hex: &str,
 ) -> Result<(), String> {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-
     let key_bytes = hex_decode(public_key_hex).ok_or("公钥 hex 无效")?;
-    let key = VerifyingKey::from_bytes(
-        key_bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| "公钥长度必须为 32 字节")?,
-    )
-    .map_err(|e| format!("公钥无效: {e}"))?;
     let sig_bytes = hex_decode(signature_hex).ok_or("签名 hex 无效")?;
-    let signature =
-        Signature::from_slice(sig_bytes.as_slice()).map_err(|e| format!("签名格式无效: {e}"))?;
     let payload_bytes = serde_json::to_vec(payload).map_err(|e| e.to_string())?;
-    key.verify(&payload_bytes, &signature)
-        .map_err(|e| format!("签名验证失败: {e}"))
+    let key = ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key_bytes);
+    key.verify(&payload_bytes, &sig_bytes)
+        .map_err(|e| format!("签名验证失败: {e:?}"))
 }
 
 /// 读取本地 Manifest 版本（不存在返回 None）

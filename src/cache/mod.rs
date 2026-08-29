@@ -210,10 +210,6 @@ impl CacheManager {
         }
     }
 
-    pub fn thumbnail_dir(&self) -> PathBuf {
-        self.dir.join("thumbnails")
-    }
-
     pub fn today() -> NaiveDate {
         Local::now().date_naive()
     }

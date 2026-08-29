@@ -2,12 +2,8 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
-use tracing::warn;
 
 use super::{ProviderContext, ProviderError, Wallpaper, WallpaperProvider};
-
-pub const PRESET_CHINA: &str = "china";
-pub const PRESET_GLOBAL: &str = "global";
 
 pub struct BingProvider {
     /// 站点根地址，形如 `https://cn.bing.com`
@@ -16,24 +12,6 @@ pub struct BingProvider {
 }
 
 impl BingProvider {
-    pub fn from_preset(preset: &str) -> Self {
-        match preset {
-            PRESET_GLOBAL => Self {
-                endpoint: "https://www.bing.com".into(),
-                mkt: "en-US".into(),
-            },
-            _ => {
-                if preset != PRESET_CHINA {
-                    warn!("未知 Bing 预设 '{preset}'，回退到国内预设");
-                }
-                Self {
-                    endpoint: "https://cn.bing.com".into(),
-                    mkt: "zh-CN".into(),
-                }
-            }
-        }
-    }
-
     /// 由 Manifest 构建（方案 §8：Bing 接口变化优先改 providers/bing.json）
     pub fn from_manifest(manifest: &super::manifest::ProviderManifest) -> Self {
         let mkt = manifest

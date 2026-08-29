@@ -4,9 +4,6 @@
 //! 由 eframe 主循环轮询消费（UI 侧执行动作，托盘线程不直接触碰 egui）。
 
 use std::sync::mpsc::Sender;
-use std::time::Duration;
-
-use tracing::{error, warn};
 
 #[cfg(windows)]
 pub fn spawn(lang: crate::i18n::Lang, tx: Sender<TrayAction>) {
@@ -14,7 +11,7 @@ pub fn spawn(lang: crate::i18n::Lang, tx: Sender<TrayAction>) {
         .name("tray".into())
         .spawn(move || {
             if let Err(err) = run(lang, tx) {
-                error!("托盘初始化失败（后台继续运行）: {err}");
+                tracing::error!("托盘初始化失败（后台继续运行）: {err}");
             }
         })
         .expect("启动托盘线程失败");
@@ -38,6 +35,9 @@ pub enum TrayAction {
 
 #[cfg(windows)]
 fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::Duration;
+
+    use tracing::warn;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem};
     use tray_icon::TrayIconBuilder;
     use windows_sys::Win32::UI::WindowsAndMessaging::{

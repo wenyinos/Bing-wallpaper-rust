@@ -12,6 +12,7 @@ mod icon;
 mod provider;
 mod scheduler;
 mod system;
+mod thumbs;
 mod tray;
 mod wallpaper;
 
@@ -60,7 +61,7 @@ fn main() -> eframe::Result<()> {
 
     // 日志：stdout + 按天滚动文件（方案 §18）；guard 必须存活到进程结束
     let file_appender = tracing_appender::rolling::daily(data_dir.join("logs"), "app.log");
-    let (log_writer, log_guard) = tracing_appender::non_blocking(file_appender);
+    let (log_writer, _log_guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_writer(std::io::stdout.and(log_writer))
@@ -98,6 +99,9 @@ fn main() -> eframe::Result<()> {
     let lang = Lang::parse(&cfg.lock().map(|c| c.language.clone()).unwrap_or_default());
     let status = Arc::new(Mutex::new(Status::idle(lang)));
 
+    // 系统托盘事件通道：env 需要发送端（P4 重载事件），先建通道再构建 env
+    let (tray_tx, tray_rx) = std::sync::mpsc::channel();
+
     // Provider 注册表（P3：内置 Bing + 用户 Manifest，同 id 覆盖）
     let providers = Arc::new(Mutex::new(
         provider::manifest::load_all(&data_dir)
@@ -118,7 +122,6 @@ fn main() -> eframe::Result<()> {
     });
 
     // 系统托盘（决策 #5）
-    let (tray_tx, tray_rx) = std::sync::mpsc::channel();
     tray::spawn(lang, tray_tx);
 
     // 开机自启动带 --minimized：主窗口隐藏，仅托盘驻留（方案 §15/§30）
@@ -137,12 +140,8 @@ fn main() -> eframe::Result<()> {
         "BingWallpaper-Rust",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(App::new(
-                env,
-                rt_handle,
-                tray_rx,
-                cc.egui_ctx.clone(),
-            )))
+            // eframe 0.27 的 app_creator 返回 Box<dyn App>（0.28 起才是 Result）
+            Box::new(App::new(env, rt_handle, tray_rx, cc.egui_ctx.clone())) as Box<dyn eframe::App>
         }),
     )
 }
