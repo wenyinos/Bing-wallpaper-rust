@@ -27,6 +27,8 @@ pub enum TrayAction {
     Quit,
     /// P4：Provider 在线更新完成后重载注册表（UI 线程执行）
     ReloadProviders,
+    /// "获取前 7 天"任务完成后刷新历史列表
+    HistoryRefresh,
 }
 
 fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +36,7 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
 
     use tracing::warn;
     use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-    use tray_icon::TrayIconBuilder;
+    use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE,
     };
@@ -59,6 +61,7 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
 
     let _tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .with_tooltip(t.tray_tooltip)
         .with_icon(icon)
         .build()?;
@@ -66,6 +69,20 @@ fn run(lang: crate::i18n::Lang, tx: Sender<TrayAction>) -> Result<(), Box<dyn st
     // 消息泵 + 菜单事件轮询（50ms 粒度，CPU 占用可忽略）
     let mut msg: MSG = unsafe { std::mem::zeroed() };
     loop {
+        // 托盘图标左键单击/双击 = 打开主窗口
+        for ev in TrayIconEvent::receiver().try_iter() {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = ev
+            {
+                if tx.send(TrayAction::Open).is_err() {
+                    return Ok(()); // UI 已退出，托盘线程随之结束
+                }
+            }
+        }
+
         for event in MenuEvent::receiver().try_iter() {
             let action = match event.id.0.as_str() {
                 "open" => Some(TrayAction::Open),
