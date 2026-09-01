@@ -44,6 +44,7 @@ Rust 1.77.2 + **native-windows-gui**（Win32 原生控件 + GDI，纯软件渲�
 
 | 版本 | 要点 |
 |------|------|
+| v0.4.2 | 安全修复：缓存路径遍历（任意文件写/删）、下载仅 HTTPS + 20MB 上限 + JPEG/PNG 校验、Manifest 强制 HTTPS、未配公钥显著警示、互斥体 Local\ 前缀、日志保留 14 天 |
 | v0.4.1 | 高 DPI 布局按系统 DPI 缩放；修复语言切换死锁（配置锁重入） |
 | v0.4.0 | 历史页"获取前 7 天壁纸"；托盘左键单击/双击打开窗口；设置页下拉修复；关于页版权信息 |
 | v0.3.x | 渲染迁移到 native-windows-gui 纯软件渲染（替换 egui/glow）；中文字体统一系统雅黑；无 cmd 黑窗；应用清单（Common Controls v6 / DPI / OS 声明）；修复启动崩溃（FFI 回调内 panic）；7 天壁纸自动轮换 |
