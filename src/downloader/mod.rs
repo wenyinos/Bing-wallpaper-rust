@@ -41,8 +41,8 @@ impl Downloader {
         if !url.starts_with("https://") {
             return Err(DownloaderError::InsecureScheme);
         }
-        let response = self.http.get(url).send().await?;
-        let response = response
+        let mut response = self.http.get(url).send().await?;
+        response = response
             .error_for_status()
             .map_err(|err| match err.status() {
                 Some(status) => DownloaderError::HttpStatus(status),
