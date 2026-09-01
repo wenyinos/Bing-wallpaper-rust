@@ -2,8 +2,10 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tracing::warn;
 
-use super::{ProviderContext, ProviderError, Wallpaper, WallpaperProvider};
+use super::json_with_limit;
+use super::{is_safe_id, ProviderContext, ProviderError, Wallpaper, WallpaperProvider};
 
 pub struct BingProvider {
     /// 站点根地址，形如 `https://cn.bing.com`
@@ -70,7 +72,7 @@ impl WallpaperProvider for BingProvider {
             "{}/HPImageArchive.aspx?format=js&idx=0&n=8&mkt={}",
             self.endpoint, self.mkt
         );
-        let archive: HpImageArchive = context.http.get(&url).send().await?.json().await?;
+        let archive: HpImageArchive = json_with_limit(context.http.get(&url).send().await?).await?;
         if archive.images.is_empty() {
             return Err(ProviderError::Empty);
         }
@@ -95,6 +97,11 @@ impl WallpaperProvider for BingProvider {
                     .ok()
                     .and_then(|d| d.and_hms_opt(0, 0, 0))
                     .map(|dt| dt.and_utc());
+                // id（urlbase/startdate）来自远程 API，将拼入缓存路径：非法条目跳过
+                if !is_safe_id(&id) {
+                    warn!("Bing Provider 返回非法壁纸 id，已跳过该条目");
+                    return None;
+                }
                 Some(Wallpaper {
                     id,
                     title: img.title.unwrap_or_default(),

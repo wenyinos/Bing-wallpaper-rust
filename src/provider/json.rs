@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use tracing::warn;
 
 use super::manifest::ProviderManifest;
-use super::{ProviderContext, ProviderError, Wallpaper, WallpaperProvider};
+use super::{json_with_limit, ProviderContext, ProviderError, Wallpaper, WallpaperProvider};
 
 pub struct JsonProvider {
     manifest: Arc<ProviderManifest>,
@@ -51,7 +52,7 @@ impl WallpaperProvider for JsonProvider {
         for (key, value) in &self.manifest.headers {
             request = request.header(key, value);
         }
-        let value: serde_json::Value = request.send().await?.json().await?;
+        let value: serde_json::Value = json_with_limit(request.send().await?).await?;
 
         let items = match &self.manifest.items_pointer {
             Some(pointer) => value.pointer(pointer).ok_or(ProviderError::Empty)?,
@@ -70,6 +71,14 @@ impl WallpaperProvider for JsonProvider {
                     .as_deref()
                     .and_then(|pointer| get_string(item, pointer))
                     .unwrap_or_else(|| index.to_string());
+                // id 将拼入缓存文件路径：非法（含路径遍历）条目跳过，不拖垮整个 Provider
+                if !super::is_safe_id(&id) {
+                    warn!(
+                        "JSON Provider '{}' 第 {index} 条 id 非法，已跳过",
+                        self.manifest.id
+                    );
+                    return None;
+                }
                 let title = mapping
                     .title
                     .as_deref()

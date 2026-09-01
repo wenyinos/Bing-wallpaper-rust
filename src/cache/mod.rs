@@ -15,7 +15,7 @@ use chrono::{DateTime, Local, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::provider::Wallpaper;
+use crate::provider::{echo_untrusted, is_safe_id, Wallpaper};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheEntry {
@@ -48,6 +48,22 @@ pub struct Index {
     pub last_cleanup: Option<NaiveDate>,
 }
 
+/// index.json 的 file 字段参与 remove_file，必须严格限定为
+/// 「provider/xxx.jpg」形式的目录内相对路径（仅可见 ASCII + Normal 组件），
+/// 防止被篡改的索引诱导删除缓存目录之外的任意文件。
+fn is_safe_index_file(file: &str) -> bool {
+    !file.is_empty()
+        && file
+            .bytes()
+            .all(|b| (0x20..=0x7e).contains(&b)) // 仅可见 ASCII，拒绝控制字符/Unicode
+        && !file.contains('\\')
+        && !file.contains("..")
+        && !file.contains(':')
+        && Path::new(file)
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+}
+
 pub struct CacheManager {
     dir: PathBuf,
 }
@@ -69,8 +85,23 @@ impl CacheManager {
 
     pub fn load_index(&self) -> Index {
         match std::fs::read_to_string(self.index_path()) {
-            Ok(text) => match serde_json::from_str(&text) {
-                Ok(index) => index,
+            Ok(text) => match serde_json::from_str::<Index>(&text) {
+                Ok(mut index) => {
+                    // 索引来自磁盘（可能被篡改）：file 字段参与后续文件删除，
+                    // 加载时先过滤非法条目，防止路径遍历传播到删除路径
+                    let mut dropped = 0usize;
+                    index.entries.retain(|e| {
+                        let ok = is_safe_index_file(&e.file);
+                        if !ok {
+                            dropped += 1;
+                        }
+                        ok
+                    });
+                    if dropped > 0 {
+                        warn!("cache/index.json 含 {dropped} 条非法 file 字段，已丢弃对应条目");
+                    }
+                    index
+                }
                 Err(err) => {
                     warn!("cache/index.json 解析失败，重建索引: {err}");
                     Index::default()
@@ -97,9 +128,21 @@ impl CacheManager {
         }
     }
 
-    /// 约定缓存文件路径：cache/<provider>/<id>.jpg
-    pub fn path_for(&self, provider: &str, wallpaper_id: &str) -> PathBuf {
-        self.dir.join(provider).join(format!("{wallpaper_id}.jpg"))
+    /// 约定缓存文件路径：cache/<provider>/<id>.jpg。
+    /// provider/wallpaper_id 均来自远程数据，必须先过白名单；
+    /// 校验通过后再断言最终路径仍在 cache 目录内（纵深防御）。
+    pub fn path_for(&self, provider: &str, wallpaper_id: &str) -> Result<PathBuf, String> {
+        for (label, part) in [("provider", provider), ("wallpaper_id", wallpaper_id)] {
+            if !is_safe_id(part) {
+                warn!("拒绝非法缓存路径标识（{label}）: {}", echo_untrusted(part));
+                return Err("壁纸标识包含非法字符，已拒绝写入缓存".into());
+            }
+        }
+        let path = self.dir.join(provider).join(format!("{wallpaper_id}.jpg"));
+        if !path.starts_with(&self.dir) {
+            return Err("缓存路径越出缓存目录，已拒绝".into());
+        }
+        Ok(path)
     }
 
     /// 下载完成后登记索引（含 last_set 更新）
@@ -166,6 +209,14 @@ impl CacheManager {
 
         let mut removed = 0;
         for entry in &expired {
+            // 纵深防御：即使加载时已过滤，删除前仍拒绝非法 file 字段
+            if !is_safe_index_file(&entry.file) {
+                warn!(
+                    "过期清理拒绝非法索引 file 字段: {}",
+                    echo_untrusted(&entry.file)
+                );
+                continue;
+            }
             let path = self.dir.join(&entry.file);
             match std::fs::remove_file(&path) {
                 Ok(()) => removed += 1,
@@ -222,10 +273,17 @@ impl CacheManager {
             .position(|e| e.provider == provider && e.wallpaper_id == wallpaper_id)
         {
             let entry = index.entries.remove(pos);
-            let path = self.dir.join(&entry.file);
-            if let Err(err) = std::fs::remove_file(&path) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    warn!("删除缓存文件失败 {}: {err}", path.display());
+            if !is_safe_index_file(&entry.file) {
+                warn!(
+                    "删除操作拒绝非法索引 file 字段: {}",
+                    echo_untrusted(&entry.file)
+                );
+            } else {
+                let path = self.dir.join(&entry.file);
+                if let Err(err) = std::fs::remove_file(&path) {
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        warn!("删除缓存文件失败 {}: {err}", path.display());
+                    }
                 }
             }
             self.save_index(&index);
@@ -242,5 +300,37 @@ impl CacheManager {
             Some(ls) => ls.date == Self::today(),
             None => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_file_validation() {
+        assert!(is_safe_index_file("bing/OHR.xxx_ZH-CN123.jpg"));
+        assert!(is_safe_index_file("my-provider/url-20260831.jpg"));
+        assert!(!is_safe_index_file(""));
+        assert!(!is_safe_index_file("../config.json"));
+        assert!(!is_safe_index_file("bing/../../x.jpg"));
+        assert!(!is_safe_index_file("..\\x.jpg"));
+        assert!(!is_safe_index_file("/etc/passwd"));
+        assert!(!is_safe_index_file("C:\\Users\\x.jpg"));
+        assert!(!is_safe_index_file("bing/x.jpg\n"));
+    }
+
+    #[test]
+    fn path_for_rejects_traversal() {
+        let cache = CacheManager::new(Path::new("/tmp/bwr-test-cache"));
+        let ok = cache.path_for("bing", "OHR.xxx_ZH-CN123").unwrap();
+        assert_eq!(
+            ok,
+            Path::new("/tmp/bwr-test-cache/bing/OHR.xxx_ZH-CN123.jpg")
+        );
+        assert!(cache.path_for("..\\..\\Roaming", "x").is_err());
+        assert!(cache.path_for("bing", "../../x").is_err());
+        assert!(cache.path_for("bing", "a/b").is_err());
+        assert!(cache.path_for("bing", "").is_err());
     }
 }

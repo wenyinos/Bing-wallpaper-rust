@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 use super::manifest::{user_providers_dir, ProviderManifest};
+use super::{echo_untrusted, is_safe_id};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoEntry {
@@ -154,6 +155,14 @@ pub async fn check_for_updates(
     // 逐条：版本比较 -> 下载 -> SHA-256 校验 -> 原子安装
     let mut updated = Vec::new();
     for entry in &envelope.payload.providers {
+        // id 直接拼入本地安装路径（<id>.json），必须先过白名单再碰文件系统
+        if !is_safe_id(&entry.id) {
+            report.errors.push(format!(
+                "条目 id 非法，已拒绝安装: {}",
+                echo_untrusted(&entry.id)
+            ));
+            continue;
+        }
         let current = local_version(&dir, &entry.id);
         if let Some(local) = &current {
             if *local >= entry.version {

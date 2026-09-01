@@ -89,6 +89,26 @@ pub fn builtin() -> ProviderManifest {
 }
 
 pub fn build(manifest: ProviderManifest) -> Result<LoadedProvider, String> {
+    // 安全基线（安全审查 #1/#3.3）：id 进入文件路径必须过白名单；
+    // 数据源地址仅允许 HTTPS（明文 HTTP 可被 MITM 篡改壁纸内容/探测内网）
+    if !super::is_safe_id(&manifest.id) {
+        return Err(format!(
+            "Provider id 非法（仅允许 ASCII 字母数字与 ._-，且不含 ..）: {}",
+            super::echo_untrusted(&manifest.id)
+        ));
+    }
+    if !manifest.endpoint.is_empty() && !manifest.endpoint.starts_with("https://") {
+        return Err(format!(
+            "Provider '{}' 的 endpoint 必须为 https://",
+            manifest.id
+        ));
+    }
+    if let Some(url) = manifest.url.as_deref().filter(|u| !u.is_empty()) {
+        if !url.starts_with("https://") {
+            return Err(format!("Provider '{}' 的 url 必须为 https://", manifest.id));
+        }
+    }
+
     let manifest = Arc::new(manifest);
     let provider: Arc<dyn WallpaperProvider> = match manifest.kind.as_str() {
         KIND_BING => Arc::new(BingProvider::from_manifest(&manifest)),

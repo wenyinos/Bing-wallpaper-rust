@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use tokio::runtime::Handle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::cache::CacheManager;
 use crate::downloader::Downloader;
@@ -157,7 +157,7 @@ async fn apply_wallpaper(
     cache: &CacheManager,
     fit_mode: &str,
 ) -> Result<(String, String), UpdateError> {
-    let dest = cache.path_for(provider_id, &wp.id);
+    let dest = cache.path_for(provider_id, &wp.id)?;
     let mut bytes: u64 = 0;
     if dest.exists() {
         info!("缓存命中: {}", dest.display());
@@ -311,7 +311,14 @@ async fn run_fetch_recent(env: &Arc<UpdateEnv>, lang: Lang) -> Result<usize, Upd
     let doing = crate::i18n::table(lang).fetch_recent_doing;
     for (i, wp) in recent.iter().enumerate() {
         set_status(env, true, format!("{doing}（{}/{}）", i + 1, recent.len()));
-        let dest = cache.path_for(&selected.manifest.id, &wp.id);
+        // 单条非法（理论上 fetch 层已过滤）跳过即可，不中断批量入库
+        let dest = match cache.path_for(&selected.manifest.id, &wp.id) {
+            Ok(dest) => dest,
+            Err(err) => {
+                warn!("跳过非法壁纸条目: {err}");
+                continue;
+            }
+        };
         let bytes: u64 = if dest.exists() {
             info!("缓存命中: {}", dest.display());
             0
@@ -346,7 +353,7 @@ pub fn spawn_provider_check(env: &Arc<UpdateEnv>, lang: Lang) {
             }
         };
         let t = crate::i18n::table(lang);
-        let (message, has_updates) = match http_client().await {
+        let (mut message, mut has_updates) = match http_client().await {
             Err(err) => (format!("{}{err}", t.status_failed_prefix), false),
             Ok(http) => {
                 match crate::provider::repo::check_for_updates(
@@ -372,6 +379,17 @@ pub fn spawn_provider_check(env: &Arc<UpdateEnv>, lang: Lang) {
                 }
             }
         };
+        // 安全审查 #3.4：配置了更新源但未配置公钥时，检查结果显著提示不防篡改
+        if !snapshot.provider_repo_url.trim().is_empty()
+            && snapshot
+                .provider_repo_public_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .is_none()
+        {
+            message.push_str(t.provider_no_pubkey_warn);
+        }
         if let Ok(mut slot) = env.provider_check_msg.lock() {
             *slot = Some((message, Instant::now()));
         }

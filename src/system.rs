@@ -25,9 +25,11 @@ mod imp {
     /// 创建命名互斥体实现单实例。
     /// 返回 `Ok(true)` 表示本进程是首个实例；`Ok(false)` 表示已有实例。
     ///
+    /// 强制 `Local\` 前缀（会话私有命名空间）：避免全局命名空间下的
+    /// 名称冲突/被其他会话进程抢注（安全审查 #4.1）。
     /// 互斥体句柄故意不关闭：其生命周期与进程绑定，进程退出时由系统自动销毁。
     pub fn acquire_single_instance(name: &str) -> Result<bool, SystemError> {
-        let wide = to_wide(name);
+        let wide = to_wide(&format!("Local\\{name}"));
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
         if handle == 0 || handle == INVALID_HANDLE_VALUE {
             return Err(SystemError::Api(unsafe { GetLastError() }));

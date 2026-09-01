@@ -29,6 +29,30 @@ use app::config::Config;
 use app::{Status, UpdateEnv};
 use i18n::Lang;
 
+/// 删除保留期之外的按天滚动日志文件（app.log.YYYY-MM-DD）；
+/// tracing-appender 按天滚动但从不删除（安全审查 #4.3）
+fn cleanup_old_logs(log_dir: &std::path::Path, keep_days: i64) {
+    let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(keep_days);
+    let Ok(entries) = std::fs::read_dir(log_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str() else {
+            continue;
+        };
+        let Some(date_str) = name.strip_prefix("app.log.") else {
+            continue;
+        };
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+            if date < cutoff {
+                if let Err(err) = std::fs::remove_file(entry.path()) {
+                    tracing::warn!("清理旧日志失败 {}: {err}", entry.path().display());
+                }
+            }
+        }
+    }
+}
+
 fn main() {
     let data_dir = match app::config::data_dir() {
         Some(dir) => dir,
@@ -41,6 +65,9 @@ fn main() {
         eprintln!("创建数据目录失败: {err}");
         return;
     }
+
+    // 旧日志清理（安全审查 #4.3）
+    cleanup_old_logs(&data_dir.join("logs"), 14);
 
     // 日志：文件按天滚动（release 无控制台，stdout 仅 debug 构建使用）
     let file_appender = tracing_appender::rolling::daily(data_dir.join("logs"), "app.log");
