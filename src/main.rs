@@ -37,7 +37,8 @@ fn cleanup_old_logs(log_dir: &std::path::Path, keep_days: i64) {
         return;
     };
     for entry in entries.flatten() {
-        let Some(name) = entry.file_name().to_str() else {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
             continue;
         };
         let Some(date_str) = name.strip_prefix("app.log.") else {
