@@ -324,9 +324,13 @@ mod tests {
     fn path_for_rejects_traversal() {
         let cache = CacheManager::new(Path::new("/tmp/bwr-test-cache"));
         let ok = cache.path_for("bing", "OHR.xxx_ZH-CN123").unwrap();
+        // 期望值用 join 逐段构造：new() 会 join("cache")，且分隔符随平台（Windows 为 \）
         assert_eq!(
             ok,
-            Path::new("/tmp/bwr-test-cache/bing/OHR.xxx_ZH-CN123.jpg")
+            Path::new("/tmp/bwr-test-cache")
+                .join("cache")
+                .join("bing")
+                .join("OHR.xxx_ZH-CN123.jpg")
         );
         assert!(cache.path_for("..\\..\\Roaming", "x").is_err());
         assert!(cache.path_for("bing", "../../x").is_err());
