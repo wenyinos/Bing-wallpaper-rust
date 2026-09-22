@@ -24,6 +24,14 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  test:
+    name: cargo test（Windows，安全回归单测）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.77.2
+      - run: cargo test --locked
+
   build:
     name: Windows ${{ matrix.arch }} 构建（MSVC）
     runs-on: windows-latest

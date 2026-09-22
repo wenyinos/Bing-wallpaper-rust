@@ -35,8 +35,8 @@ Rust 1.77.2 + **native-windows-gui**（Win32 原生控件 + GDI，纯软件渲�
 
 ## 开发与构建（2026-08-29 决策：构建单轨）
 
-- 本项目为**纯 Windows 项目**；编译验证以 GitHub Actions 为准（windows runner + MSVC，双架构矩阵）。
-- 本机仅做 `cargo fmt --all` 语法/格式检查；rustup 按 `rust-toolchain.toml` 自动使用 1.77.2。不要安装 mingw-w64 或任何 Windows target。
+- 本项目为**纯 Windows 项目**；编译与测试验证以 GitHub Actions 为准（fmt 检查 + `cargo test` 安全回归单测 + MSVC 双架构构建矩阵）。
+- 本机不安装任何 Windows target 或 mingw-w64 工具链，仅做 `cargo fmt --all` 语法/格式检查；rustup 按 `rust-toolchain.toml` 自动使用 1.77.2。
 - **发布**：推送 `v*` tag，CI 双架构构建后自动附加产物到同名 Release，无需手动上传。
 - 依赖必须满足 MSRV ≤ 1.77.2；`Cargo.lock` 入库，禁止常规 `cargo update`。2025-09 后部分传递依赖新版要求 edition2024/rustc ≥1.81，已在 `Cargo.toml` 用 `=版本` 钉死（升级工具链前勿动，详见方案文档 §42）。
 
